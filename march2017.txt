@@ -1,0 +1,147 @@
+==========================================
+ACCESS Optimisation Report: September 2016
+==========================================
+
+:Author:       Marshall Ward
+:Contact:      marshall.ward@anu.edu.au
+:Organization: National Computational Infrastructure
+:Date:         13 February 2017
+:Status:       Incomplete
+
+
+ACCESS CM2 scaling analysis
+===========================
+
+Overview
+--------
+
+Testing on u-ai241 in Rose.
+
+* UM 10.3 (latest is 10.6)
+* MOM 5.1 (forked at some point)
+* CICE 5 (also forked)
+
+
+Program structure
+-----------------
+
+UM coupling:
+
+* ``main``
+  * ``um_shell``
+    * ``oasis_initialize``
+    * ``u_model_4a``
+      * ``initial_4a``
+        * ``oasis_initialise_2``
+        * (UM initialisation)
+      * ``atm_step_4a``
+        * (Main loop)
+      * ``oasis3_geto2a``
+        * ``oasis3_get``
+          * ``MPI_Irecv``, ``MPI_Waitall``
+      * ``dumpctl``
+        * ``um_writdump``
+          * ``general_gather_field``
+            * ``stash_gather_field``
+              * ``gather_field``
+                * ``MPI_Barrier``
+      * ``oasis3_puta2o``
+        * ``oasis3_put``
+          * ``MPI_Waitany``, ``MPI_Bcast``, ``MPI_Reduce``, ``MPI_Waitall``
+      * ``meanctl``
+    * ``oasis_finalize``
+
+
+
+* ``main``
+  * ``cice_initmod.cice_initialize``
+    * ``cice_initmod.cice_init``
+      * ``cpl_interface.prism_init``
+        * ``MPI_Barrier``, ``MPI_Init``
+      * ``cpl_interface.init_cpl``
+        * ``MPI_Bcast``, ``MPI_Barrier``, ``MPI_Recv``, ``MPI_Scatterv``
+  * ``cice_runmod.cice_run``
+    * ``cpl_interface.from_ocn``
+      * ``ice_boundary.ice_haloupdate2dr8``
+    * ``cpl_interface.from_atm``
+      * (intrinsic, halos, etc)
+    * ``cpl_interface.into_ocn``
+      * (Intrinsic, bit of isend)
+    * ``cice_runmod.ice_step``
+      * ``ice_diagnostics.init_mass_diags``
+      * ``ice_step_mod.step_therm1``
+      * ``ice_step_mod.step_therm2``
+      * ``ice_step_mod.post_thermo``
+      * ``ice_step_mod.step_dynamics``
+      * ``ice_history_accum_hist``
+      * ``ice_restart_driver.dumpfile``
+    * ``cpl_interface.into_atm``
+      * ``MPI_Bcast``, ``MPI_Waitany``, intrinsic
+  * ``cice_finalmod.cice_finalize``
+    * ``cpl_interface.coupler_termination``
+      * ``MPI_Barrier``
+
+Ice initialisation:
+
+Ice coupler timestep (``cice_run``):
+
+   * Atmos/ocean loop
+     * ``from_ocn``
+       * ``prism_get_proto``
+       * 9x ``ice_HaloUpdate`` calls
+     * ``from_atm``
+       * ``prism_get_proto``
+       * 22x ``ice_HaloUpdate``
+     * ``t2ugrid_vector``
+     * ``into_ocn``
+       * ``prism_put_proto``
+       * Lots of copying... need to include oasis
+     * Ice loop
+       * ``ice_step``
+     * ``into_atm``
+       * ``prism_put_proto``
+       * Lots of copying... need to include oasis
+
+Ice finalisation:
+
+Ocean initialisation:
+
+   * ``external_coupler_mpi_init``
+   * ``fms_init``
+   * ``ocean_model_init``
+   * ``external_coupler_sbc_init``
+
+
+Ocean timestep:
+
+   * ``external_coupler_sbc_before``
+     * ``into_coupler``
+   * ``update_ocean_model``
+   * ``external_coupler_sbc_after``
+     * ``from_coupler``
+
+
+Ocean finalisation:
+
+   * ``ocean_model_end``
+   * ``diag_manager_end``
+   * ``external_coupler_restart``
+
+
+Modifications
+-------------
+
+mpp_global_field fix (?)
+
+
+
+MOM 5 parallel IO using HDF5
+============================
+
+.. TODO
+
+
+MOM 5 architecture update
+=========================
+
+.. TODO
