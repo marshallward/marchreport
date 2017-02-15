@@ -138,7 +138,94 @@ mpp_global_field fix (?)
 MOM 5 parallel IO using HDF5
 ============================
 
+We have added an option to use parallel IO in the MOM 5 ocean model.  This
+implementation modifies MOM's netCDF calls to use the parallel HDF5 backend.
+These changes were integrated into the FMS framework, which was recently
+updated in MOM 5 to match the "ulm" release that was used in MOM 6.  (We note
+that MOM 6 currently uses the more recent "verona" release.)
+
+
+Motivation
+----------
+
+The main benefit of this change is to streamline the postprocessing of model
+output, which is becoming prohibitively expensive as model resolution is
+increased to 0.1° and higher.  Currently, MOM offers two methods of model
+output for collecting the model data, spread over several MPI ranks, and saving
+the output.  The first method uses a single file for the global domain, where
+the data is gathered onto a master rank which saves the output to one file.
+The second method collects multiple ranks into "IO domains", which consist of
+rectilinear chunks of domain tiles.  In this case, each IO domain has a master
+rank which collects the output and produces its own output file, producing one
+file per IO domain.  The most distributed example is one IO domain per MPI
+rank, which produces one file per rank.
+
+The first method is equivalent to an IO domain which covers the entire model
+domain.  Prior to the FMS upgrade, this method would allow all ranks to
+simultaneously write to a single file, forcing the file system to manage the
+concurrent writes.  At thousands of cores, it was not possible to use this
+method on our Lustre systems, and it was necessary to use increasingly smaller
+IO domains.
+
+The current limitation of single-file IO is that it requires an expensive MPI
+collective call, and that, in its current implementation, the entire global
+grid must reside in memory.  At very high resolutions of 0.1° and beyond, there
+may no longer be sufficient memory to gather the entire fields onto the master
+rank.
+
+The limitations of single-file IO have forced most MOM users to use some form
+of IO layout, typically using one file per MPI rank.  This has led to
+prohibitively expensive postprocessing tasks which re-assemble the scattered
+files with the ``mppnccombine`` tool, a serial application which is primarily
+bound by the size of the domain.  Typical 0.25° global simulations require
+approximately 30 minutes of postprocessing time.  For global 0.1° simulations,
+the postprocessing time is on the order of several hours, often exceeding the
+model runtime.
+
+A secondary issue related to the use of IO domains is the large number of files
+that is produced, which can put considerable pressure on the file system.
+
+In order to accommodate current and future resolution models, we explore the
+use of parallel IO in netCDF using the HDF5 backend.  This will potentially
+eliminate any postprocessing re-assembly, while also reducing the number of
+output files and eliminating the need to tune the IO layout size.
+
+
+Code change summary
+-------------------
+
 .. TODO
+
+
+Preliminary runtime comparison
+------------------------------
+
+
+When parallel IO is enabled, sample IO runtimes as reported by FMS are shown
+below.
+
+===   ============   ============   =============  =============
+Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
+===   ============   ============   =============  =============
+ 1      82.70         11.35          50.63          61.37
+ 2      81.01          9.71          45.70          61.76
+ 3      26.59         11.36          61.66          66.17
+ 4     145.28         24.90         106.34          92.74
+===   ============   ============   =============  =============
+
+
+
+
+
+The major changes are detailed below:
+
+
+Current state
+-------------
+
+The
+
+
 
 
 MOM 5 architecture update
