@@ -219,8 +219,6 @@ identify such effects.
 
 Serial single-file IO runtimes are shown below.
 
-.. TODO need updated numbers with diagnostics
-
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
 ===   ============   ============   =============  =============
@@ -238,8 +236,6 @@ reasonably reproducible and takes 45 seconds.  Closing of files takes neligible
 time.
 
 The runtimes associated with an IO layout of one file per rank are shown below.
-
-.. TODO need updated numbers with diagnostics
 
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
@@ -263,43 +259,35 @@ negligible relative to other more expensive operations.
 These times do not account for any postprocessing time required to reassemble
 the file.
 
-The runtimes for the HDF5-based parallel IO is shown below.
-
-.. TODO need updated numbers with diagnostics
+The runtimes for the HDF5-based parallel IO are shown below.
 
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
 ===   ============   ============   =============  =============
-117.490502 11.434703 50.755041 72.033560
-145.277333 24.902039 106.340194 92.743031
-105.119078 9.831214 55.748458 74.743099
-26.588220 11.358688 61.659774 66.165021
-100.872598 9.805277 73.881400 71.757232
-113.046568 10.539358 60.043570 75.524472
-81.009638 9.708636 45.703802 61.762000
-82.704247 11.352486 50.632580 61.371987
-
-
-99.064521 11.092044 136.394047 68.699544
-91.053044 10.547224 63.899779 68.333811
-103.986214 14.040206 119.571608 81.222476
-110.482250 12.664752 140.743693 73.483916
-91.946691 10.051490 73.649011 68.914856
-80.096406 13.514021 80.857488 68.647151
-97.198724 10.613318 84.431393 64.305565
-
+ 1    183.967524     10.746912      76.714975      177.044665
+ 2 	111.292937     11.252900      68.779444      194.931167
+ 3 	138.917490     10.969770      75.419247      162.699621
+ 4 	120.004135     11.233812      72.511130      168.187673
+ 5 	 98.263479     10.275581      78.572633      190.855665
+ 6 	121.954680      9.807626      67.791991      189.386032
+ 7 	131.929345     11.720524      57.608429      275.690834
 ===   ============   ============   =============  =============
 
+The results show that using parallel, in its current form, is more expensive
+across the board.  Opening and closing files is particular expensive, replacing
+a nearly instantaneous operation with one that requires minutes to complete.
+Reading data is nearly an order of magnitude slower, increasing from fractions
+of a second to approximately 10 seconds.  The writing of data, arguably the
+most "parallel" component, is comparable to the serial IO time (~70 seconds vs
+~45 seconds), although it is still more than 50% slower.
+
+Although the numbers are not encouraging, most of the performance ultimately
+depends on factors within the netCDF and HDF5 libraries, as well as the
+configuration of the Lustre filesystem.  A deeper analysis into the library
+performance may offer further improvements.
 
 
-
-
-
-Current state
--------------
-
-The
-
+.. TODO nc_close() issue, hdf5 updates, etc...
 
 
 
