@@ -1,0 +1,142 @@
+MOM 5 architecture update
+=========================
+
+MOM 5 performance has been tested on the new Broadwell and Knights Landing
+architectures that are now available at NCI.  We compare total runtime and the
+main timestep loop for a 10-day simulation of the 0.25° global MOM-SIS model.
+
+
+Broadwell and AVX performance
+-----------------------------
+
+We first assess the relative impact of vectorisation.  As a baseline, the
+runtimes of the model and its components with vectorisation disabled are shown
+below.  The model configuration is 960 cores and we are using Raijin's Sandy
+Bridge processors.
+
+===   ==============    ==========     =========   ==========
+Run   Initialization    Main Loop      Ice         Ocean
+===   ==============    ==========     =========   ==========
+ 1         38.943359    226.206121     30.129753   179.251363
+ 2         39.999433    227.305222     24.001153   180.975900
+ 3         31.979714    220.213150     27.473409   179.084566
+ 4         31.956277    229.733304     23.578101   180.189868
+ 5         33.778689    228.252098     25.777260   179.544830
+ 6         35.400778    226.811759     22.777308   179.161627
+===   ==============    ==========     =========   ==========
+
+We now compare these times to a run with AVX vectorisation enabled, which is
+shown below.
+
+===   ==============    ==========     =========   ==========
+Run   Initialization    Main Loop      Ice         Ocean
+===   ==============    ==========     =========   ==========
+ 1         19.362018    197.253112     20.076150   164.931316
+ 2         27.540941    196.362503     20.348626   164.573890
+ 3         71.908913    197.979473     19.795985   165.022409
+ 4         39.968834    193.741367     22.050688   164.902442
+ 5         24.228881    196.147442     20.854712   165.228888
+ 6        196.814788    202.988127     23.690132   165.488688
+ 7        581.488104    207.358955     21.227328   165.741518
+ 8         23.926872    191.040262     21.153550   164.334752
+ 9         25.111909    198.490099     20.138984   165.411809
+10         30.792388    207.464302     20.275388   165.414327
+===   ==============    ==========     =========   ==========
+
+If we ignore the variability in initialisation time, which is likely related to
+IO and performance of the filesystem, we can see that the model is
+approximately 10% faster when AVX instructions are used.  Given that peak
+speedup should be closer to 400%, or a factor of four, when all registers are
+used, this shows that AVX has a much more marginal impact on model runtime, and
+that MOM 5 is currently not well-vectorised.
+
+Our previous report showed that the MOM 5 source code is itself
+well-vectorised, with AVX instructions utilised to a very high degree.
+However, it would seem that the AVX instructions themselves are not being
+effectively leveraged in the model, and that any benefits are blocked by some
+other issue, such as poor cacheing or interruptions to the instructions
+pipeline.
+
+We next consider the impact of the Broadwell CPUs.  Those results, with AVX
+instructions enabled, are shown below.
+
+===   ==============    ==========     =========   ==========
+Run   Initialization    Main Loop      Ice         Ocean
+===   ==============    ==========     =========   ==========
+ 1         15.906483    177.534305     12.640387   160.647040
+ 2         16.790518    177.989028     13.074188   160.516654
+ 3         17.211261    185.074495     16.380250   161.520931
+ 4         20.228408    182.966043     15.599682   160.917259
+ 5         16.161087    179.857916     14.309815   160.590231
+ 6         16.270336    177.193049     12.616891   160.293257
+ 7         21.049083    187.557572     13.349581   160.660958
+===   ==============    ==========     =========   ==========
+
+Again, there is a measureable improvement in the model runtimes, particularly
+related to model initialization and sea ice timesteps, which are nearly twice
+as fast in most runs.  Ocean runtime is approximately 3% faster, which can
+partly be attributed to the slightly faster clock speeds of the Broadwell CPUs
+(3.3 vs 3.0 GHz), although the 10% increase in clock speed is greater than the
+3% speedup of the model itself.
+
+Additional speedups are observed when the AVX2 and FMA instructions are enabled
+in the Broadwell CPUs.  The results are shown below.
+
+===   ==============    ==========     =========   ==========
+Run   Initialization    Main Loop      Ice         Ocean
+===   ==============    ==========     =========   ==========
+ 1          7.702850    172.307918     11.473137   156.309545
+ 2          8.288476    173.164166     11.605993   157.002395
+ 3         18.089102    204.231784     12.349496   156.770859
+ 4          7.739069    172.725944     11.559639   156.864587
+ 5          8.139903    172.613860     11.641219   156.722015
+ 6          9.352710    172.255512     11.563091   156.040733
+ 7         23.886885    178.126865     11.716519   157.997572
+ 8         17.548532    203.491581     11.770722   156.069796
+===   ==============    ==========     =========   ==========
+
+This shows additional speedups of approximately 3% in the ocean and sea ice
+model, and substantial improvements in model initialisation.
+
+
+Knights Landing performance
+---------------------------
+
+.. TODO Knights Landing introduction: artchitecture, clock speed, AVX512
+
+Sample runs on the new Knights Landing nodes are shown below.
+
+===== ============== ===========    ==========  ===========
+Ranks Initialization Main Loop      Ice         Ocean
+===== ============== ===========    ==========  ===========
+240        19.373068 1750.156905    250.754457  1437.116977
+960        82.515802  505.135058     89.108359   377.094712
+1920       94.007270  357.210901     67.527349   246.045042
+===== ============== ===========    ==========  ===========
+
+If we compare the 960-core runtimes to the Sandy Bridge times, then we see that
+the model is approximately 2.6 times slower.  The ocean core itself is
+approximately 2.3x slower.  This is consistent with the clock speed difference
+of 1.3 GHz in the Knights Landing and 3.0 GHz on the (turbo) Sandy Bridge
+processors.  We see that scalability on the Knights Landing nodes is generally
+strong, with an approximate 3.8x speedup from 240 to 960 cores, and an
+additional 1.5x speedup from 960 to 1920 cores, which matches the scaling
+profiles on the Sandy Bridge nodes.
+
+Enabling AVX-512 in MOM 5 produced a segmentation fault on the Sandy Bridge
+nodes, which has not yet been investigated.  However, given the relatively
+minor impact of AVX on MOM 5 on the Sandy Bridge nodes, we would not
+necessarily expect AVX-512 to have a significant impact on runtime performance.
+
+From this, we conclude that the model can be ported to the Knights
+Landing architecture without major disruption, and that runtime effectively
+matches the clock speed of the processor.  However, additional improvements to
+MOM 5 are needed in order to benefit from AVX vectorisation.  In particular,
+MOm 5 will need to demonstrate very clear improvements from AVX and AVX-512
+vectorisation before it is able to produce performance on the Knights Landing
+nodes which is comparable to Raijin.
+
+
+Barriers to vectorisation
+-------------------------
+
