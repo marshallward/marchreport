@@ -28,46 +28,81 @@ Program structure
 UM coupling:
 
 * ``main``
+
   * ``um_shell``
+
     * ``oasis_initialize``
     * ``u_model_4a``
+
       * ``initial_4a``
+
         * ``oasis_initialise_2``
         * (UM initialisation)
+
       * ``atm_step_4a``
+
         * (Main loop)
+
       * ``oasis3_geto2a``
+
         * ``oasis3_get``
+
           * ``MPI_Irecv``, ``MPI_Waitall``
+
       * ``dumpctl``
+
         * ``um_writdump``
+
           * ``general_gather_field``
+
             * ``stash_gather_field``
+
               * ``gather_field``
+
                 * ``MPI_Barrier``
+
       * ``oasis3_puta2o``
+
         * ``oasis3_put``
+
           * ``MPI_Waitany``, ``MPI_Bcast``, ``MPI_Reduce``, ``MPI_Waitall``
+
       * ``meanctl``
+
     * ``oasis_finalize``
 
-
+CICE call tree:
 
 * ``main``
+
   * ``cice_initmod.cice_initialize``
+
     * ``cice_initmod.cice_init``
+
       * ``cpl_interface.prism_init``
+
         * ``MPI_Barrier``, ``MPI_Init``
+
       * ``cpl_interface.init_cpl``
+
         * ``MPI_Bcast``, ``MPI_Barrier``, ``MPI_Recv``, ``MPI_Scatterv``
+
   * ``cice_runmod.cice_run``
+
     * ``cpl_interface.from_ocn``
+
       * ``ice_boundary.ice_haloupdate2dr8``
+
     * ``cpl_interface.from_atm``
+
       * (intrinsic, halos, etc)
+
     * ``cpl_interface.into_ocn``
+
       * (Intrinsic, bit of isend)
+
     * ``cice_runmod.ice_step``
+
       * ``ice_diagnostics.init_mass_diags``
       * ``ice_step_mod.step_therm1``
       * ``ice_step_mod.step_therm2``
@@ -75,10 +110,15 @@ UM coupling:
       * ``ice_step_mod.step_dynamics``
       * ``ice_history_accum_hist``
       * ``ice_restart_driver.dumpfile``
+
     * ``cpl_interface.into_atm``
+
       * ``MPI_Bcast``, ``MPI_Waitany``, intrinsic
+
   * ``cice_finalmod.cice_finalize``
+
     * ``cpl_interface.coupler_termination``
+
       * ``MPI_Barrier``
 
 Ice initialisation:
@@ -86,19 +126,25 @@ Ice initialisation:
 Ice coupler timestep (``cice_run``):
 
    * Atmos/ocean loop
+
      * ``from_ocn``
+
        * ``prism_get_proto``
        * 9x ``ice_HaloUpdate`` calls
      * ``from_atm``
+
        * ``prism_get_proto``
        * 22x ``ice_HaloUpdate``
      * ``t2ugrid_vector``
      * ``into_ocn``
+
        * ``prism_put_proto``
        * Lots of copying... need to include oasis
      * Ice loop
+
        * ``ice_step``
      * ``into_atm``
+
        * ``prism_put_proto``
        * Lots of copying... need to include oasis
 
@@ -115,9 +161,11 @@ Ocean initialisation:
 Ocean timestep:
 
    * ``external_coupler_sbc_before``
+
      * ``into_coupler``
    * ``update_ocean_model``
    * ``external_coupler_sbc_after``
+
      * ``from_coupler``
 
 
@@ -133,163 +181,7 @@ Modifications
 
 mpp_global_field fix (?)
 
-
-
-MOM 5 parallel IO using HDF5
-============================
-
-We have added an option to use parallel IO in the MOM 5 ocean model.  This
-implementation modifies MOM's netCDF calls to use the parallel HDF5 backend.
-These changes were integrated into the FMS framework, which was recently
-updated in MOM 5 to match the "ulm" release that was used in MOM 6.  (We note
-that MOM 6 currently uses the more recent "verona" release.)
-
-
-Motivation
-----------
-
-The main benefit of this change is to streamline the postprocessing of model
-output, which is becoming prohibitively expensive as model resolution is
-increased to 0.1° and higher.  Currently, MOM offers two methods of model
-output for collecting the model data, spread over several MPI ranks, and saving
-the output.  The first method uses a single file for the global domain, where
-the data is gathered onto a master rank which saves the output to one file.
-The second method collects multiple ranks into "IO domains", which consist of
-rectilinear chunks of domain tiles.  In this case, each IO domain has a master
-rank which collects the output and produces its own output file, producing one
-file per IO domain.  The most distributed example is one IO domain per MPI
-rank, which produces one file per rank.
-
-The first method is equivalent to an IO domain which covers the entire model
-domain.  Prior to the FMS upgrade, this method would allow all ranks to
-simultaneously write to a single file, forcing the file system to manage the
-concurrent writes.  At thousands of cores, it was not possible to use this
-method on our Lustre systems, and it was necessary to use increasingly smaller
-IO domains.
-
-The current limitation of single-file IO is that it requires an expensive MPI
-collective call, and that, in its current implementation, the entire global
-grid must reside in memory.  At very high resolutions of 0.1° and beyond, there
-may no longer be sufficient memory to gather the entire fields onto the master
-rank.
-
-The limitations of single-file IO have forced most MOM users to use some form
-of IO layout, typically using one file per MPI rank.  This has led to
-prohibitively expensive postprocessing tasks which re-assemble the scattered
-files with the ``mppnccombine`` tool, a serial application which is primarily
-bound by the size of the domain.  Typical 0.25° global simulations require
-approximately 30 minutes of postprocessing time.  For global 0.1° simulations,
-the postprocessing time is on the order of several hours, often exceeding the
-model runtime.
-
-A secondary issue related to the use of IO domains is the large number of files
-that is produced, which can put considerable pressure on the file system.
-
-In order to accommodate current and future resolution models, we explore the
-use of parallel IO in netCDF using the HDF5 backend.  This will potentially
-eliminate any postprocessing re-assembly, while also reducing the number of
-output files and eliminating the need to tune the IO layout size.
-
-
-Code change summary
--------------------
-
-.. TODO
-
-
-Preliminary runtime comparison
-------------------------------
-
-We next compare the IO times of serial single-file IO, distributed IO using one
-file per rank, and the parallel HDF5 IO.  For this initial overview, we rely on
-the FMS IO timers.  Each timer represents the integrated runtime of all
-activities related to opening, reading, writing, and closing of netCDF files.
-
-.. TODO clarify what these timers are reading
-
-For these runs, we use a 1-day simulation of the 0.25° global MOM-SIS
-configuration with a prescribed temperature and sainity fields and driven by
-CORE-NYF forcing fields.  The model is configured for 960 cores in a 32 x 30
-layout, and we report the mean time over all ranks.  Model output consists of
-the model restart data and one diagnostic timestep containing a selection of
-standard model fields.  Multiple independent runs are shown for each case.  We
-do not attempt to compensate for variablility associated with the Lustre file
-system, such as network activity or file cacheing, and rely on the ensemble to
-identify such effects.
-
-Serial single-file IO runtimes are shown below.
-
-===   ============   ============   =============  =============
-Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
-===   ============   ============   =============  =============
- 1 	10.127204      0.827548       43.921926      0.002706
- 2 	 3.204619      3.359515       48.188171      0.003407
- 3 	 2.724011      0.614933       46.209305      0.004799
- 4 	 3.637457      5.154762       45.064778      0.014230
- 5 	 23.732970     0.845679       44.335262      0.005553
- 6 	 3.572654      0.748843       45.509557      0.004746
- 7 	14.540763      6.328382       45.355167      0.002697
-===   ============   ============   =============  =============
-
-There is some volatility in opening and reading files, but the output time is
-reasonably reproducible and takes 45 seconds.  Closing of files takes neligible
-time.
-
-The runtimes associated with an IO layout of one file per rank are shown below.
-
-===   ============   ============   =============  =============
-Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
-===   ============   ============   =============  =============
- 1    6.585480       0.839497       0.125752       0.378755
- 2 	4.232381       0.826440       0.122883       0.355361
- 3 	4.756819       0.790047       0.125295       0.391151
- 4 	11.009223      0.373077       0.134252       0.455508
- 5 	4.663688       2.101340       0.123211       0.374899
- 6 	5.780161       0.788737       0.131356       0.382595
- 7 	17.802821      4.080521       0.129418       0.432132
-===   ============   ============   =============  =============
-
-Opening and reading times are comparable to the single-file case, which is to
-be expected since the same files are being read in both experiments.  Write
-times are notably shorter, since there is no longer any need to gather the data
-onto a particular rank.  The time required to close files is considerably
-greater, possibly due to the greater number of files, but the time is still
-negligible relative to other more expensive operations.
-
-These times do not account for any postprocessing time required to reassemble
-the file.
-
-The runtimes for the HDF5-based parallel IO are shown below.
-
-===   ============   ============   =============  =============
-Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
-===   ============   ============   =============  =============
- 1    183.967524     10.746912      76.714975      177.044665
- 2 	111.292937     11.252900      68.779444      194.931167
- 3 	138.917490     10.969770      75.419247      162.699621
- 4 	120.004135     11.233812      72.511130      168.187673
- 5 	 98.263479     10.275581      78.572633      190.855665
- 6 	121.954680      9.807626      67.791991      189.386032
- 7 	131.929345     11.720524      57.608429      275.690834
-===   ============   ============   =============  =============
-
-The results show that using parallel, in its current form, is more expensive
-across the board.  Opening and closing files is particular expensive, replacing
-a nearly instantaneous operation with one that requires minutes to complete.
-Reading data is nearly an order of magnitude slower, increasing from fractions
-of a second to approximately 10 seconds.  The writing of data, arguably the
-most "parallel" component, is comparable to the serial IO time (~70 seconds vs
-~45 seconds), although it is still more than 50% slower.
-
-Although the numbers are not encouraging, most of the performance ultimately
-depends on factors within the netCDF and HDF5 libraries, as well as the
-configuration of the Lustre filesystem.  A deeper analysis into the library
-performance may offer further improvements.
-
-
-.. TODO nc_close() issue, hdf5 updates, etc...
-
-
+.. include:: mom5_pio.txt
 
 MOM 5 architecture update
 =========================
