@@ -13,6 +13,47 @@ All codes have been modified to some extent.  This is primarily to support
 OASIS field exchange between models, but may also include some minor
 modifications to the numerical solvers.
 
+In the ``u-ai241`` configuration, the UM has the N96 (192 x 144) horizontal
+grid of approximately 1° resolution, and with 85? (*check*) vertical levels.
+CICE and MOM share a higher resolution 0.25° resolution grid of 1440 x 1080
+grid points.  CICE models six (*check*) classes of sea ice, and MOM uses 50 vertical
+levels.
+
+
+Modifications
+-------------
+
+Initial attempts to use the CM2 model led to infrequent errors and model hangs
+in MOM.  We concluded that this was due to a hang in the ACCESS section of MOM
+that is responsible for OASIS restart file generation.  The previous version
+would use MOM's ``mpp_global_field`` function to construct a global copy of the
+data on all ranks, even though only rank 0 requires this copy for writing the
+model output.  The implementation of ``mpp_global_field`` used an all-to-all
+set of point-to-point operations, which would cause frequent hangs within the
+MPI library.
+
+This error had been addressed in an earlier version of CM2, and was probably
+mentioned in a previous report, but we have since learned that the proposed fix
+contained errors which produced incorrect restart files (courtesty of Aidan
+Heerdegen), and had been removed from the CM2 version of MOM.  The error was
+resolved by replacing the ``ROOT_GLOBAL`` flag with the correct value of
+``GLOBAL_ROOT_ONLY``.  (Thanks to Russ Fiedler for identifying and solving this
+bug.)
+
+After applying this fix, CM2 now runs and no longer hangs within MOM during
+finalisation.
+
+The relevant commits are listed below:
+
+* https://github.com/BreakawayLabs/mom/commit/318d5848350cf1f28ff7bf1043d1219d39ca781f
+* https://github.com/BreakawayLabs/mom/commit/6e17586c2a0b240bd54e22b5f7629a3a87594596
+* https://github.com/BreakawayLabs/mom/commit/59e3f5a7d78ff3ec26adc9bc67431fe93aca0e8e
+
+In addition to this bugfix, we have also upgraded the library dependencies of
+CM2, most notably the OpenMPI library from 1.8.4 to 1.10.2.  This resolves
+known intermittent model hangs during collectives (such as ``MPI_Reduce``) over
+thousands of CPUs.
+
 
 Overall performance
 -------------------
@@ -230,9 +271,3 @@ The absolute runtime of ``external_coupler_sbc_after`` is shown below.
 .. image:: figs/main_IP_external_coupler_sbc_after_atm.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ice.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ocn.svg
-
-
-Modifications
--------------
-
-mpp_global_field fix (?)
