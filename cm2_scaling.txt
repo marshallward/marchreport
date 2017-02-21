@@ -59,170 +59,157 @@ absence of any coupling costs, any improvements to CM2 must first focus on UM
 timestep performance.
 
 
-Atmosphere-sea ice coupling
----------------------------
+Atmosphere coupling
+-------------------
+
+The primary function calls in an atmospheric model timestep are shown below in
+the order of exection.
+
+* ``oasis3_geto2a``
+* ``oasis3_puta2o``
+* ``atm_step_4a``
+
+The relative time devoted to these functions for different CPU arrangements is
+shown below.
+
+.. image:: figs/atm_vs_atm.svg
+.. image:: figs/atm_vs_ice.svg
+.. image:: figs/atm_vs_ocn.svg
+
+These figures demonstrate the scaling of each function relative to each of the
+three submodels.  The hashed bar denotes the default CM2 configuration.
+
+At the default configuration, only about 50% of the UM runtime is devoted to
+model simulation, with the other half devoted to coupling work, which is
+predominantly due to the ``oasis3_geto2a`` function, which receives the
+boundary data from CICE and is dominated by point-to-point exchanges via
+``MPI_Isend()`` and ``MPI_Wait`` calls.
+
+For the sea ice and ocean models, coupling time increases as CICE and MOM's CPU
+count is reduced, presumably due to slower runtimes and greater wait times of
+the UM.  When CICE and MOM CPUs exceed the default configuration, there is no
+substantial change in coupling time or the total UM runtime.
+
+There is a general trend of increasing runtime in ``oasis3_puta2o`` as core
+counts are increased in all models.  However, the relative runtime of this
+function remains small and is not included in this analysis.
+
+.. TODO Do some analysis on oasis3_puta2o if there's time
+
+Absolute runtimes of ``oasis3_geto2a`` are shown below.
+
+.. image:: figs/oasis3_geto2a_atm.svg
+.. image:: figs/oasis3_geto2a_ice.svg
+.. image:: figs/oasis3_geto2a_ocn.svg
+
+Trends along sea ice and ocean cores match with observations in the relative
+runtime plots.  The runtime decreases in a scalable manner, matching the trends
+of the submodel intrinsic cores.  Beyond the default configuration, there is no
+longer any runtime improvement and the coupling time remains fixed.
+
+.. TODO Internal o2a analysis?
+
+(Rough notes below)
+
+The runtime is 72 timesteps, with 368 calls to ``oasis3_geto2a``.  The internal
+function ``oasis3_get`` is called 368 times during this run.  There are 46
+fields passed from ice to atmosphere, so ``oasis3_get`` is called 8 times per
+field.  This means that only 1 on 9 ``oasis3_geto2a`` calls results in an
+actual exchange.  This matches up with 3-hour updates
+
+The function receives a total of 2208 messages (some 2216, some are much
+higher, ~2900).  This is 6 messages per field per exchange step.  Total bytes
+is 194304 (or 176640) bytes.  This is 88 (or 80) bytes (11 or 10 doubles) per
+field per exchange step per message. Since these messages are very small
+(relative to peak of ~1MiB), communication time will be dominated by message
+setup time and will depend primarily on the number of messages.
+
+
+Sea ice coupling
+----------------
+
+The functions calls of the sea ice timestep are shown below.
+
+* ``from_ocn``
+* ``from_atm``
+* ``into_ocn``
+* Internal loop
+
+   * ``ice_step``
+* ``into_atm``
+
+The relative time in each function over all timesteps is shown below.
+
+.. image:: figs/ice_vs_atm.svg
+.. image:: figs/ice_vs_ice.svg
+.. image:: figs/ice_vs_ocn.svg
+
+For the default configuration, approximately 75% of timestep time is devoted to
+model simulation, with 25% of runtime devoted to coupling.  This is primarily
+dominated by the ``into_atm`` and ``from_ocn`` functions.
+
+The ``into_atm`` function comprises a significant share of the total timestep
+time, although this share does not depend strongly on CPU configuration.  The
+absolute runtimes are shown below.
+
+.. image:: figs/into_atm_atm.svg
+.. image:: figs/into_atm_ice.svg
+.. image:: figs/into_atm_ocn.svg
 
 .. TODO
 
+The runtime of ``into_atm`` is relatively fixed, regardless of model
+configuration.
 
-Sea ice-Ocean coupling
-----------------------
+blabla ``from_ocn``
 
-.. TODO
+absolute blabla
 
+.. image:: figs/from_ocn_atm.svg
+.. image:: figs/from_ocn_ice.svg
+.. image:: figs/from_ocn_ocn.svg
 
-Program structure
------------------
+blabla
 
-UM coupling:
+The ``from_atm`` function is largely an inexpensive operation.  The only
+exception is when the atmosphere is running on 96 cores and CICE must wait on
+the model.  But as the number of atmospheric cores is increased and the UM's
+runtime is reduced, this wait time becomes a small component of the total
+runtime.  This is consistent with our earlier measurements of ``oasis3_puta2o``
+in the UM, which was also a relatively small portion of its runtime.
 
-* ``main``
+The ``into_ocn`` function is also a relatively inexpensive operation.  Although
+there is some dependence on the scalability of CICE and MOM, the relatively
+small share of time spent in this function permits us to focus on the two
+larger functions.
 
-  * ``um_shell``
 
-    * ``oasis_initialize``
-    * ``u_model_4a``
 
-      * ``initial_4a``
+Ocean coupling
+--------------
 
-        * ``oasis_initialise_2``
-        * (UM initialisation)
+Call tree here.
 
-      * ``atm_step_4a``
+The relative time in the ocean timestep subroutines is shown below.
 
-        * (Main loop)
+.. image:: figs/ocn_vs_atm.svg
+.. image:: figs/ocn_vs_ice.svg
+.. image:: figs/ocn_vs_ocn.svg
 
-      * ``oasis3_geto2a``
+As is evident from the figures, MOM spends approximately half of its time on
+model simulation, and half on coupling activities.  Nearly all of the coupling
+time is spent within the ``external_coupler_sbc_after`` function, where MOM
+receives its boundary conditions from CICE.  Virtually no time is spent within
+the ``external_coupler_sbc_before`` function, where MOM sends its updated
+boundary conditions to CICE.
 
-        * ``oasis3_get``
+.. TODO (wait is that right?)
 
-          * ``MPI_Irecv``, ``MPI_Waitall``
+The absolute runtime of ``external_coupler_sbc_after`` is shown below.
 
-      * ``dumpctl``
-
-        * ``um_writdump``
-
-          * ``general_gather_field``
-
-            * ``stash_gather_field``
-
-              * ``gather_field``
-
-                * ``MPI_Barrier``
-
-      * ``oasis3_puta2o``
-
-        * ``oasis3_put``
-
-          * ``MPI_Waitany``, ``MPI_Bcast``, ``MPI_Reduce``, ``MPI_Waitall``
-
-      * ``meanctl``
-
-    * ``oasis_finalize``
-
-CICE call tree:
-
-* ``main``
-
-  * ``cice_initmod.cice_initialize``
-
-    * ``cice_initmod.cice_init``
-
-      * ``cpl_interface.prism_init``
-
-        * ``MPI_Barrier``, ``MPI_Init``
-
-      * ``cpl_interface.init_cpl``
-
-        * ``MPI_Bcast``, ``MPI_Barrier``, ``MPI_Recv``, ``MPI_Scatterv``
-
-  * ``cice_runmod.cice_run``
-
-    * ``cpl_interface.from_ocn``
-
-      * ``ice_boundary.ice_haloupdate2dr8``
-
-    * ``cpl_interface.from_atm``
-
-      * (intrinsic, halos, etc)
-
-    * ``cpl_interface.into_ocn``
-
-      * (Intrinsic, bit of isend)
-
-    * ``cice_runmod.ice_step``
-
-      * ``ice_diagnostics.init_mass_diags``
-      * ``ice_step_mod.step_therm1``
-      * ``ice_step_mod.step_therm2``
-      * ``ice_step_mod.post_thermo``
-      * ``ice_step_mod.step_dynamics``
-      * ``ice_history_accum_hist``
-      * ``ice_restart_driver.dumpfile``
-
-    * ``cpl_interface.into_atm``
-
-      * ``MPI_Bcast``, ``MPI_Waitany``, intrinsic
-
-  * ``cice_finalmod.cice_finalize``
-
-    * ``cpl_interface.coupler_termination``
-
-      * ``MPI_Barrier``
-
-Ice initialisation:
-
-Ice coupler timestep (``cice_run``):
-
-   * Atmos/ocean loop
-
-     * ``from_ocn``
-
-       * ``prism_get_proto``
-       * 9x ``ice_HaloUpdate`` calls
-     * ``from_atm``
-
-       * ``prism_get_proto``
-       * 22x ``ice_HaloUpdate``
-     * ``t2ugrid_vector``
-     * ``into_ocn``
-
-       * ``prism_put_proto``
-       * Lots of copying... need to include oasis
-     * Ice loop
-
-       * ``ice_step``
-     * ``into_atm``
-
-       * ``prism_put_proto``
-       * Lots of copying... need to include oasis
-
-Ice finalisation:
-
-Ocean initialisation:
-
-   * ``external_coupler_mpi_init``
-   * ``fms_init``
-   * ``ocean_model_init``
-   * ``external_coupler_sbc_init``
-
-
-Ocean timestep:
-
-   * ``external_coupler_sbc_before``
-
-     * ``into_coupler``
-   * ``update_ocean_model``
-   * ``external_coupler_sbc_after``
-
-     * ``from_coupler``
-
-
-Ocean finalisation:
-
-   * ``ocean_model_end``
-   * ``diag_manager_end``
-   * ``external_coupler_restart``
+.. image:: figs/main_IP_external_coupler_sbc_after_atm.svg
+.. image:: figs/main_IP_external_coupler_sbc_after_ice.svg
+.. image:: figs/main_IP_external_coupler_sbc_after_ocn.svg
 
 
 Modifications
