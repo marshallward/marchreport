@@ -6,7 +6,7 @@ Scaling results are based on the ``u-ai241`` Rose suite, which consists of the
 following submodels:
 
 * Unified Model (UM) v10.3
-* Modular Ocean Model (MOM) v5.1 (?)
+* Modular Ocean Model (MOM) v5.1
 * Los Alamos sea ice model (CICE) v5.1
 
 All codes have been modified to some extent.  This is primarily to support
