@@ -62,12 +62,23 @@ timestep performance.
 Atmosphere coupling
 -------------------
 
+The atmospheric models sends and receives the most data during coupling
+timesteps.  It also has a coarser ~1° grid in comparison to CICE's 0.25° grid,
+meaning that field exchange will also require additional work related
+to interpolation and message passing.
+
 The primary function calls in an atmospheric model timestep are shown below in
 the order of exection.
 
 * ``oasis3_geto2a``
 * ``oasis3_puta2o``
 * ``atm_step_4a``
+
+The UM sends 38 fields to CICE and receives 46 fields, far more than exchanged
+between CICE and MOM.  Although the OASIS exchange functions are called every
+timestep, they only send and receive data after a coupling period of 3 hours
+(or 9 timesteps) has elapsed.  Our one-day simulations therefore comprise 8
+coupling timesteps.
 
 The relative time devoted to these functions for different CPU arrangements is
 shown below.
@@ -76,36 +87,45 @@ shown below.
 .. image:: figs/atm_vs_ice.svg
 .. image:: figs/atm_vs_ocn.svg
 
-These figures demonstrate the scaling of each function relative to each of the
-three submodels.  The hashed bar denotes the default CM2 configuration.
+These figures demonstrate the relative runtime for each of these functions over
+a range of CPU counts relative to the default configuration, which is denoted
+by the hashed bar in each figure.
 
-At the default configuration, only about 50% of the UM runtime is devoted to
-model simulation, with the other half devoted to coupling work, which is
-predominantly due to the ``oasis3_geto2a`` function, which receives the
-boundary data from CICE and is dominated by point-to-point exchanges via
-``MPI_Isend()`` and ``MPI_Wait`` calls.
+For the default configuration, only about 50% of the UM runtime is devoted to
+model simulation.  The other half is devoted to coupling work, which is
+predominantly due to the ``oasis3_geto2a`` function.  This subroutine receives
+and distributed the boundary data from CICE to the UM and is dominated by
+point-to-point exchanges via ``MPI_Isend()`` and ``MPI_Wait`` calls.
+
+For low CPU counts, the UM runtime is dominated by internal timesteps of
+``atm_step_4a``.  This share decreases as the core count is increased through
+its well-scaling configurations.  By 432 cores, coupling time comprises half of
+the total runtime, and continues to increase as core count is increased, albeit
+more slowly.
 
 For the sea ice and ocean models, coupling time increases as CICE and MOM's CPU
 count is reduced, presumably due to slower runtimes and greater wait times of
-the UM.  When CICE and MOM CPUs exceed the default configuration, there is no
-substantial change in coupling time or the total UM runtime.
+the UM.  When CICE and MOM are scaled up to CPU counts greater than the default
+configuration, there is no substantial change in coupling time or the total UM
+runtime.
 
-There is a general trend of increasing runtime in ``oasis3_puta2o`` as core
-counts are increased in all models.  However, the relative runtime of this
-function remains small and is not included in this analysis.
+There is a noticeable trend of and increased runtime share of ``oasis3_puta2o``
+as core counts are increased in all models.  However, the relative runtime of
+this function remains small, so we do not include it in our analysis.
 
 .. TODO Do some analysis on oasis3_puta2o if there's time
 
-Absolute runtimes of ``oasis3_geto2a`` are shown below.
+In order to gain a better understanding of the behaviour of ``oasis3_geto2a``,
+the absolute runtime is shown below.
 
 .. image:: figs/oasis3_geto2a_atm.svg
 .. image:: figs/oasis3_geto2a_ice.svg
 .. image:: figs/oasis3_geto2a_ocn.svg
 
-Trends along sea ice and ocean cores match with observations in the relative
-runtime plots.  The runtime decreases in a scalable manner, matching the trends
-of the submodel intrinsic cores.  Beyond the default configuration, there is no
-longer any runtime improvement and the coupling time remains fixed.
+Trends along sea ice and ocean cores match the relative runtimes in the
+previous plots.  The runtime decreases in a scalable manner, matching the
+trends of the submodel intrinsic cores.  Beyond the default configuration,
+there is no longer any runtime improvement and the coupling time remains fixed.
 
 .. TODO Internal o2a analysis?
 
