@@ -201,12 +201,12 @@ this block.  One snippet is shown below.
 
 .. code:: asm
 
-   1009	        do i=isd,ied
-   => movslq %r12d,%r10
+      ; do i=isd,ied
+      movslq %r12d,%r10
       mov    -0x1828(%rbp),%rdi
 
-   1010	           massqc(i,j,k) = 0.25*Grd%dau(i,j)*Thickness%rho_dzu(i,j,k,tau)
-   => vmovupd (%r15,%r14,8),%xmm0
+      ; massqc(i,j,k) = 0.25*Grd%dau(i,j)*Thickness%rho_dzu(i,j,k,tau)
+      vmovupd (%r15,%r14,8),%xmm0
       vmovupd 0x0(%r13,%r14,8),%xmm2
       vmovupd 0x20(%r15,%r14,8),%xmm6
       vmovupd 0x40(%r15,%r14,8),%xmm12
@@ -235,43 +235,62 @@ this block.  One snippet is shown below.
       vmovupd %ymm1,0x40(%r9,%r14,8)
       vmovupd %ymm7,0x60(%r9,%r14,8)
 
-   1009	        do i=isd,ied
-   => add    $0x10,%r14
+      ; do i=isd,ied
+      add    $0x10,%r14
       cmp    %r10,%r14
       jb     0xc4be3b <ocean_bihgen_friction_mod_mp_bihgen_friction_+10091>
 
-While most of the details of this snippet can be ignored, there are three main
+While most of the details of this snippet can be ignored, there are two main
 observations.
 
 1. AVX instructions (e.g. ``vmulpd``, ``vmovupd``) are being used in this loop,
-   although there are several instances which do no use AVX instructions.
+   and the loop has been 4x unrolled, providing calculations for 16 grid points
+   in the x-direction.  But since there are only 24 total grid points, and
+   there is an internal ``i`` loop, this code block is never repeated and there
+   is no opportunity to build a productive computation pipeline.
 
-2. The presence of unpacking instructions (``vinsertf128``) indicate that the
-   model cannot confirm that the vectors are aligned in memory, which can
-   substantially reduce model performance.
+2. The presence of 4-byte unpacking instructions (``vinsertf128``) indicate
+   that the model cannot confirm if the vectors are aligned in memory, which
+   can lead to additional performance losses.
 
-3. Although there is no data dependency within the three-nested loop, there are
-   still explicit loops within the inner index ``i``.  Inbetween these AVX
-   instruction blocks, there are many peel and remainder loops which do not use
-   AVX.  And this pattern occurs within every ``i`` loop, and repeats itself on
-   every ``j`` and ``k`` iteration.
-
-Both points 2 and 3 limit peak AVX performance, but point 3 is perhaps most
+Both issues limit peak AVX performance, but the first point is perhaps most
 responsible for the reduced performance.  The small number of inner-loop
-iterations (no more than 24) prevent the development of an efficient
-calculation pipeline, and prevent MOM from achieving anything close to peak AVX
-performance.
+iterations (effectively no iteration, since there is only a single instance)
+prevent the development of an efficient calculation pipeline, and prevent MOM
+from achieving anything close to peak AVX performance.
 
-In C, it would be possible to re-structure the vectors to appear
-one-dimensional (sometimes referred to as "changing the view" of the vector)
-and efficiently loop over all vector elements.  But in Fortran, there is no
-clear way to loop over vector elements.
+.. In C, it would be possible to re-structure the vectors to appear
+   one-dimensional and efficiently loop over all vector elements.  But in Fortran,
+   there is no clear technique for looping over all vector elements without
+   retaining a copy of the original vector.
 
-.. TODO finish mer
+In order to achieve peak performance in the future, it will be necessary to
+develop methods which allow the program to establish a pipeline across all
+elements in the domain, rather than simply over the horizontal direction.  For
+example, the vertical domain can be handled as the innermost loop, or
+horizontal tile width can be extended, or the data can be stored in as a single
+array with metadata tracking the spatial relationship between grid points.
+
+Although the ideal solution is not obvious at this stage, it is evident that
+future models will need to focus on greater utilisation of their caches if peak
+performance is to be achieved.
 
 
 Summary
 -------
 
 Performance tests show that MOM is not gaining any substantial benefit from
-SIMD vectorisation on Raijin.
+SIMD vectorisation on Raijin.  There is only a marginal benefit to using AVX
+instructions, and even less benefit from the AVX2 extension.
+
+MOM can run successfully on the Xeon Phi Knights Landing nodes, and its
+performance is in proportion to the Sandy Bridge node clock speeds.  There are
+insufficient nodes available to conduct a proper scaling test, but early
+numbers suggest that MOM follows the same per-core trend on the Knights Landing
+nodes.
+
+The absence of any AVX speedup is evident in a roofline analysis of a sample
+loop calculation within MOM.  The performance in FLOPs per second is no more
+than 5% of peak performance.  This is primarily due to excessive loop iteration
+and the absence of an established pipeline.  Future models will need to take
+these factors into consideration in order to achieve peak performance.

@@ -57,15 +57,54 @@ output files and eliminating the need to tune the IO layout size.
 Code change summary
 -------------------
 
-- build script flags (``--use_pnetcdf``)
-- namelist configuration (``parallel_netcdf``, ``parallel_chunk``)
-- Force multi-threaded, single-file IO with pnetcdf
-- Re-enable ``MPI_Info_set`` calls
-- Replace ``nf__create`` with ``nf_create_par``, rely on ``MPI_Info_set`` to
-  configure ``ncblksz``
-- Force ``nf_collective`` in ``nf_var_par_access``
-- Optionally force a chunk size matching the local tile size (if equal)
-- Temporarily use ``mpp_global_field``... ? (need to check mpp_write_2Ddecomp.h)
+The major code changes are outlined below.
+
+* netCDF files are now handled with the ``nc_create_par`` and ``nc_open_par``
+  functions.
+
+* All fields are opened as collective read/write fields, via the
+  ``NF_COLLECTIVE`` tag.  This is a requirement for any variable that has an
+  unlimited time axis.  It also appears to be necessary for performance
+  reasons, so it has been enabled for all variables.
+
+* Infrastructure for configuring ``MPI_Info`` has been enabled, although it is
+  currently cannot yet be used to set any specific parameters.
+
+* ``mpp_write_2D`` was modified to allow each rank to individually write its
+  own data via MPI.  This was written in a way to take advantage of existing
+  FMS functionality.
+
+* Build scripts have been updated to include parallel netCDF support, which can
+  be either enabled or disabled at compile time.
+
+* New namelist variables have been introduced to enable parallel netcdf::
+
+    &mpp_io_nml
+        parallel_netcdf = .true.
+        parallel_chunk = .true.  # Default chunking
+    /
+
+Outstanding issues are listed below:
+
+* Parallel IO cannot currently be disabled; ``parallel_netcdf`` must be
+  set to ``.true.``.  There are some outstanding bugs related to collective
+  IO flags which must be investigated.
+
+* The custom chunking function will only work on a domain with equal-sized
+  tiles on all ranks.
+
+* Paralllel IO is currently handled by the global MPI communicator,
+  ``MPI_COMM_WORLD``, rather than the default communicator assigned to MOM.
+  This is not an issue in solo or serial MOM-SIS coupled runs, but will cause
+  errors in any parallel-coupled configuration.
+
+* ``io_layout`` must be set to ``1,1`` since it is required to set the
+  multithreading and multiple file flags to sensible values.  A future version
+  will force ``io_layout`` to equal ``1,1`` when parallel IO is enabled.
+
+The code changes can be reviewed in the following link:
+
+* https://github.com/marshallward/mom/compare/b34bafb8d759e4ded5f16c6b270f06d13020523f...e8a09d74ddd5a6c10c880289d24f5c285fa1b43a
 
 
 Preliminary runtime comparison
@@ -158,5 +197,5 @@ configuration of the Lustre filesystem.  A deeper analysis into the library
 performance may offer further improvements.
 
 
-.. TODO nc_close() issue, hdf5 updates, etc...
+.. TODO nc_close() issue, hdf5 updates, etc... let Rui finish the rest?
 
