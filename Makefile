@@ -14,11 +14,13 @@ docx: march2017.txt
 odt: cm2_scaling.txt $(ODT_IMGS)
 	# Modify graphics extensions
 	sed -re "s/(^\.\. image:: .*).svg/\1.$(IMGEXT)/g" $< > tmp.txt
-	rst2odt --no-sections --create-links --stylesheet=nci.odt tmp.txt out.odt
+	rst2odt --no-sections --create-links --stylesheet=nci.odt tmp.txt out.odt && \
+		rm -f tmp.txt
 
 docx: cm2_scaling.txt $(ODT_IMGS)
 	sed -re "s/(^\.\. image:: .*).svg/\1.$(IMGEXT)/g" $< > tmp.txt
-	pandoc -f rst -t docx --reference-docx=fujistu.docx -o out.docx tmp.txt
+	pandoc -f rst -t docx --reference-docx=fujistu.docx -o out.docx tmp.txt && \
+		rm -rf tmp.txt
 
 %.$(IMGEXT): %.svg
 	convert $^ $(basename $^).$(IMGEXT)
