@@ -14,36 +14,36 @@ Motivation
 The main benefit of this change is to streamline the postprocessing of model
 output, which is becoming prohibitively expensive as model resolution is
 increased to 0.1° and higher.  Currently, MOM offers two methods of model
-output for collecting the model data, spread over several MPI ranks, and saving
-the output.  The first method uses a single file for the global domain, where
-the data is gathered onto a master rank which saves the output to one file.
-The second method collects multiple ranks into "IO domains", which consist of
-rectilinear chunks of domain tiles.  In this case, each IO domain has a master
-rank which collects the output and produces its own output file, producing one
-file per IO domain.  The most distributed example is one IO domain per MPI
-rank, which produces one file per rank.
+output for collecting the model data, which is distributed over several MPI
+ranks, and saving the output.  The first method uses a single file for the
+global domain, where the data is gathered onto a master rank which saves the
+output to one file.  The second method collects multiple ranks into "IO
+domains", which consist of rectilinear chunks of domain tiles.  In this case,
+each IO domain has a master rank which collects the output and produces its own
+output file, producing one file per IO domain.  The most distributed case is
+one IO domain per MPI rank, which produces one file per rank.
 
 The first method is equivalent to an IO domain which covers the entire model
-domain.  Prior to the FMS upgrade, this method would allow all ranks to
-simultaneously write to a single file, forcing the file system to manage the
-concurrent writes.  At thousands of cores, it was not possible to use this
-method on our Lustre systems, and it was necessary to use increasingly smaller
-IO domains.
+domain.  Prior to the upgrade of the FMS framework, this method would allow all
+ranks to simultaneously write to a single file, forcing the file system to
+manage the concurrent writes.  At thousands of cores, this put substantial
+strain on the Lustre filesystem, and it was necessary to use smaller IO
+domains.
 
-The current limitation of single-file IO is that it requires an expensive MPI
-collective call, and that, in its current implementation, the entire global
-grid must reside in memory.  At very high resolutions of 0.1° and beyond, there
-may no longer be sufficient memory to gather the entire fields onto the master
-rank.
+In the current FMS framework, single-file IO requires an expensive MPI
+collective call onto the master rank, which then saves the entire global
+gridded data into memory.  At very high resolutions of 0.1° and beyond, there
+may not be sufficient memory to gather the fields onto the master rank on all
+platforms.
 
 The limitations of single-file IO have forced most MOM users to use some form
 of IO layout, typically using one file per MPI rank.  This has led to
 prohibitively expensive postprocessing tasks which re-assemble the scattered
-files with the ``mppnccombine`` tool, a serial application which is primarily
-bound by the size of the domain.  Typical 0.25° global simulations require
-approximately 30 minutes of postprocessing time.  For global 0.1° simulations,
-the postprocessing time is on the order of several hours, often exceeding the
-model runtime.
+files with the ``mppnccombine`` tool, a serial application whose runtime is
+primarily bound by the size of the domain.  Typical 0.25° global simulations
+require approximately 30 minutes of postprocessing time.  For global 0.1°
+simulations, the postprocessing time is on the order of several hours, often
+exceeding the model runtime.
 
 A secondary issue related to the use of IO domains is the large number of files
 that is produced, which can put considerable pressure on the file system.
@@ -67,8 +67,8 @@ The major code changes are outlined below.
   unlimited time axis.  It also appears to be necessary for performance
   reasons, so it has been enabled for all variables.
 
-* Infrastructure for configuring ``MPI_Info`` has been enabled, although it is
-  currently cannot yet be used to set any specific parameters.
+* Infrastructure for configuring performance via ``MPI_Info`` has been enabled,
+  although currently no parameters have yet been defined.
 
 * ``mpp_write_2D`` was modified to allow each rank to individually write its
   own data via MPI.  This was written in a way to take advantage of existing
@@ -93,9 +93,9 @@ Outstanding issues are listed below:
 * The custom chunking function will only work on a domain with equal-sized
   tiles on all ranks.
 
-* Paralllel IO is currently handled by the global MPI communicator,
+* Parallel IO is currently handled by the global MPI communicator,
   ``MPI_COMM_WORLD``, rather than the default communicator assigned to MOM.
-  This is not an issue in solo or serial MOM-SIS coupled runs, but will cause
+  This is not an issue in solo or serially coupled MOM-SIS runs, but will cause
   errors in any parallel-coupled configuration.
 
 * ``io_layout`` must be set to ``1,1`` since it is required to set the
@@ -132,13 +132,13 @@ Serial single-file IO runtimes are shown below.
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
 ===   ============   ============   =============  =============
- 1 	10.127204      0.827548       43.921926      0.002706
- 2 	 3.204619      3.359515       48.188171      0.003407
- 3 	 2.724011      0.614933       46.209305      0.004799
- 4 	 3.637457      5.154762       45.064778      0.014230
- 5 	23.732970      0.845679       44.335262      0.005553
- 6 	 3.572654      0.748843       45.509557      0.004746
- 7 	14.540763      6.328382       45.355167      0.002697
+1     10.127204      0.827548       43.921926      0.002706
+2      3.204619      3.359515       48.188171      0.003407
+3      2.724011      0.614933       46.209305      0.004799
+4      3.637457      5.154762       45.064778      0.014230
+5     23.732970      0.845679       44.335262      0.005553
+6      3.572654      0.748843       45.509557      0.004746
+7     14.540763      6.328382       45.355167      0.002697
 ===   ============   ============   =============  =============
 
 There is some volatility in opening and reading files, but the output time is
@@ -150,13 +150,13 @@ The runtimes associated with an IO layout of one file per rank are shown below.
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
 ===   ============   ============   =============  =============
- 1    6.585480       0.839497       0.125752       0.378755
- 2 	4.232381       0.826440       0.122883       0.355361
- 3 	4.756819       0.790047       0.125295       0.391151
- 4 	11.009223      0.373077       0.134252       0.455508
- 5 	4.663688       2.101340       0.123211       0.374899
- 6 	5.780161       0.788737       0.131356       0.382595
- 7 	17.802821      4.080521       0.129418       0.432132
+1      6.585480      0.839497       0.125752       0.378755
+2      4.232381      0.826440       0.122883       0.355361
+3      4.756819      0.790047       0.125295       0.391151
+4     11.009223      0.373077       0.134252       0.455508
+5      4.663688      2.101340       0.123211       0.374899
+6      5.780161      0.788737       0.131356       0.382595
+7     17.802821      4.080521       0.129418       0.432132
 ===   ============   ============   =============  =============
 
 Opening and reading times are comparable to the single-file case, which is to
@@ -174,21 +174,21 @@ The runtimes for the HDF5-based parallel IO are shown below.
 ===   ============   ============   =============  =============
 Run   ``mpp_open``   ``mpp_read``   ``mpp_write``  ``mpp_close``
 ===   ============   ============   =============  =============
- 1    183.967524     10.746912      76.714975      177.044665
- 2 	111.292937     11.252900      68.779444      194.931167
- 3 	138.917490     10.969770      75.419247      162.699621
- 4 	120.004135     11.233812      72.511130      168.187673
- 5 	 98.263479     10.275581      78.572633      190.855665
- 6 	121.954680      9.807626      67.791991      189.386032
- 7 	131.929345     11.720524      57.608429      275.690834
+1     183.967524     10.746912      76.714975      177.044665
+2     111.292937     11.252900      68.779444      194.931167
+3     138.917490     10.969770      75.419247      162.699621
+4     120.004135     11.233812      72.511130      168.187673
+5      98.263479     10.275581      78.572633      190.855665
+6     121.954680      9.807626      67.791991      189.386032
+7     131.929345     11.720524      57.608429      275.690834
 ===   ============   ============   =============  =============
 
 The results show that using parallel, in its current form, is more expensive
 across the board.  Opening and closing files is particular expensive, replacing
 a nearly instantaneous operation with one that requires minutes to complete.
 Reading data is nearly an order of magnitude slower, increasing from fractions
-of a second to approximately 10 seconds.  The writing of data, arguably the
-most "parallel" component, is comparable to the serial IO time (~70 seconds vs
+of a second to approximately 10 seconds.  The writing of data, potentially the
+most parallel component, is comparable to the serial IO time (~70 seconds vs
 ~45 seconds), although it is still more than 50% slower.
 
 Although the numbers are not encouraging, most of the performance ultimately

@@ -18,8 +18,11 @@ pdf: march2017.txt
 
 %.docx: %.txt $(ODT_IMGS)
 	sed -re "s/(^\.\. image:: .*).svg/\1.$(IMGEXT)/g" $< > tmp.txt
-	pandoc -f rst -t docx --reference-docx=fujistu.docx -o $@ tmp.txt && \
+	# Pandoc doesn't seem to handle simple reST tables...
+	pandoc -f rst -t rst -o tmp2.txt tmp.txt && \
 		rm -rf tmp.txt
+	pandoc -f rst -t docx --reference-docx=fujitsu.docx -o $@ tmp2.txt && \
+		rm -rf tmp2.txt
 
 %.$(IMGEXT): %.svg
 	convert $^ $(basename $^).$(IMGEXT)
