@@ -125,8 +125,11 @@ The relative time devoted to these functions for different CPU arrangements is
 shown below.
 
 .. image:: figs/atm_vs_atm.svg
+   :width: 30%
 .. image:: figs/atm_vs_ice.svg
+   :width: 30%
 .. image:: figs/atm_vs_ocn.svg
+   :width: 30%
 
 These figures demonstrate the relative runtime for each of these functions over
 a range of CPU counts relative to the default configuration, which is denoted

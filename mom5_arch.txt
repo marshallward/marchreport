@@ -10,9 +10,9 @@ Broadwell and AVX performance
 -----------------------------
 
 We first assess the relative impact of vectorisation.  As a baseline, the
-runtimes of the model and its components with vectorisation disabled are shown
-below.  The model configuration is 960 cores and we are using Raijin's Sandy
-Bridge processors.
+runtimes of the model and its main sections with vectorisation disabled are
+shown below.  The model configuration is 960 cores and we are using Raijin's
+Sandy Bridge processors.
 
 ===   ==============    ==========     =========   ==========
 Run   Initialization    Main Loop      Ice         Ocean
@@ -45,16 +45,16 @@ Run   Initialization    Main Loop      Ice         Ocean
 
 If we ignore the variability in initialisation time, which is likely related to
 IO and performance of the filesystem, we can see that the model is
-approximately 10% faster when AVX instructions are used.  Given that peak
-speedup should be closer to 400%, or a factor of four, when all registers are
-used, this shows that AVX has a much more marginal impact on model runtime, and
-that MOM 5 is currently not well-vectorised.
+approximately 10% faster when AVX instructions are used.  Given that the
+maximum potential speedup is 400%, or a factor of four, this shows that AVX has
+a much more marginal impact on model runtime, and that MOM 5 is currently not
+well-vectorised.
 
 Our previous report showed that the MOM 5 source code is itself
 well-vectorised, with AVX instructions utilised to a very high degree.
 However, it would seem that the AVX instructions themselves are not being
 effectively leveraged in the model, and that any benefits are blocked by some
-other issue, such as poor cacheing or interruptions to the instructions
+other issue, such as poor caching or interruptions to the instructions
 pipeline.
 
 We next consider the impact of the Broadwell CPUs.  Those results, with AVX
@@ -72,7 +72,7 @@ Run   Initialization    Main Loop      Ice         Ocean
  7         21.049083    187.557572     13.349581   160.660958
 ===   ==============    ==========     =========   ==========
 
-Again, there is a measureable improvement in the model runtimes, particularly
+Again, there is a measurable improvement in the model runtimes, particularly
 related to model initialization and sea ice timesteps, which are nearly twice
 as fast in most runs.  Ocean runtime is approximately 3% faster, which can
 partly be attributed to the slightly faster clock speeds of the Broadwell CPUs
@@ -102,9 +102,14 @@ model, and substantial improvements in model initialisation.
 Knights Landing performance
 ---------------------------
 
-.. TODO Knights Landing introduction: artchitecture, clock speed, AVX512
+NCI has acquired 32 Knights Landing (KNL) nodes.  Each node consists of one
+64-core Xeon Phi (model 7230), with a clock speed of 1.3 GHz and 192 GB of RAM
+per node.  These processors support the AVX-512 extension, which can
+potentially increase performance by a factor of two when the pipeline is fully
+utilised.
 
-Sample runs on the new Knights Landing nodes are shown below.
+Sample runs on the new Knights Landing nodes are shown below.  The executable
+was only compiled with AVX support, as on the Sandy Bridge nodes.
 
 ===== ============== ===========    ==========  ===========
 Ranks Initialization Main Loop      Ice         Ocean
@@ -137,6 +142,136 @@ vectorisation before it is able to produce performance on the Knights Landing
 nodes which is comparable to Raijin.
 
 
-Barriers to vectorisation
--------------------------
+Roofline analysis
+-----------------
 
+In order to identify the cause of poor vectorisation in MOM, we apply timers to
+the following codeblock within MOM's biharmonic viscosity subroutine:
+
+.. code:: fortran
+
+   do k=1,nk
+     do j=jsd,jed
+        do i=isd,ied
+           massqc(i,j,k) = 0.25*Grd%dau(i,j)*Thickness%rho_dzu(i,j,k,tau)
+        enddo
+     enddo
+   enddo
+
+Since this is a very simple vector update with no data dependencies, its
+performance should be predictable from a roofline analysis.  The calculation
+involves two 8-byte loads, two multiplications, and one 8-byte store, yielding
+load and store arithmetic intensities of 1/8 and 1/4, respectively.  Based on
+the roofline analysis from the previous report, we therefore expect a peak
+performance of approximately 13.2 GFLOP/sec per core.
+
+We test these results in the MOM's ``bowl1`` configuration.  Model runtime is
+480 steps, and the domain is 24 x 20 x 80 grid points, so there are a total of
+~18 MFLOPs.  Layouts are chosen to ensure that FLOPs per core are equal.
+Sample runtimes and FLOPs per second are shown below.  We report the mean
+runtime over all ranks, selecting the median result for an ensemble of runs.
+
+====   =========  ===========    ==========
+CPUs   Vec. Size  Runtime (s)    GFLOPS/sec
+====   =========  ===========    ==========
+1          300.0     0.027970        0.6590
+2          150.0     0.018425        0.5002
+4           75.0     0.007956        0.5792
+8           37.5     0.006058        0.3803
+16          18.8     0.003503        0.3289
+32           9.3     0.002264        0.2544
+60           5.0     0.001617        0.1900
+120          2.5     0.001434        0.1071
+====   =========  ===========    ==========
+
+(Similar numbers were obtained from an equivalent Fortran program, in order to
+rule out any effects due to dereferencing (``%``) or any resource issues within
+MOM itself.)
+
+The table results show that the performance of this simple loop is far below
+the expected peak of 13.2 GFLOP/sec.  Low performance at smaller core counts is
+understandable, since the vector will not fit in the L1 cache, and the
+calculation could be bound by memory bandwidth.  For example, the single-CPU
+vector will be 300kiB, which is far larger than the 32kiB L1 cache.  However,
+this performance becomes worse, not better, as CPU count is increased, even as
+the vector size drops below the L1 cache limit.
+
+This performance issue can be explained by looking at the assembly code for
+this block.  One snippet is shown below.
+
+.. code:: asm
+
+   1009	        do i=isd,ied
+   => movslq %r12d,%r10
+      mov    -0x1828(%rbp),%rdi
+
+   1010	           massqc(i,j,k) = 0.25*Grd%dau(i,j)*Thickness%rho_dzu(i,j,k,tau)
+   => vmovupd (%r15,%r14,8),%xmm0
+      vmovupd 0x0(%r13,%r14,8),%xmm2
+      vmovupd 0x20(%r15,%r14,8),%xmm6
+      vmovupd 0x40(%r15,%r14,8),%xmm12
+      vmovupd 0x20(%rdi,%r14,8),%xmm8
+      vmovupd 0x40(%rdi,%r14,8),%xmm14
+      vinsertf128 $0x1,0x10(%r15,%r14,8),%ymm0,%ymm1
+      vmulpd 0x124f5cc(%rip),%ymm1,%ymm3        # 0x1e9b440
+      vinsertf128 $0x1,0x10(%r13,%r14,8),%ymm2,%ymm4
+      vmulpd %ymm4,%ymm3,%ymm5
+      vmovupd 0x60(%r15,%r14,8),%xmm2
+      vmovupd 0x60(%rdi,%r14,8),%xmm4
+      vmovupd %ymm5,(%r11,%r14,8)
+      vinsertf128 $0x1,0x30(%r15,%r14,8),%ymm6,%ymm7
+      vinsertf128 $0x1,0x50(%r15,%r14,8),%ymm12,%ymm13
+      vinsertf128 $0x1,0x70(%r15,%r14,8),%ymm2,%ymm3
+      vmulpd 0x124f58c(%rip),%ymm7,%ymm9        # 0x1e9b440
+      vmulpd 0x124f584(%rip),%ymm13,%ymm15        # 0x1e9b440
+      vmulpd 0x124f57c(%rip),%ymm3,%ymm5        # 0x1e9b440
+      vinsertf128 $0x1,0x30(%rdi,%r14,8),%ymm8,%ymm10
+      vinsertf128 $0x1,0x50(%rdi,%r14,8),%ymm14,%ymm0
+      vinsertf128 $0x1,0x70(%rdi,%r14,8),%ymm4,%ymm6
+      vmulpd %ymm10,%ymm9,%ymm11
+      vmulpd %ymm0,%ymm15,%ymm1
+      vmulpd %ymm6,%ymm5,%ymm7
+      vmovupd %ymm11,0x20(%r9,%r14,8)
+      vmovupd %ymm1,0x40(%r9,%r14,8)
+      vmovupd %ymm7,0x60(%r9,%r14,8)
+
+   1009	        do i=isd,ied
+   => add    $0x10,%r14
+      cmp    %r10,%r14
+      jb     0xc4be3b <ocean_bihgen_friction_mod_mp_bihgen_friction_+10091>
+
+While most of the details of this snippet can be ignored, there are three main
+observations.
+
+1. AVX instructions (e.g. ``vmulpd``, ``vmovupd``) are being used in this loop,
+   although there are several instances which do no use AVX instructions.
+
+2. The presence of unpacking instructions (``vinsertf128``) indicate that the
+   model cannot confirm that the vectors are aligned in memory, which can
+   substantially reduce model performance.
+
+3. Although there is no data dependency within the three-nested loop, there are
+   still explicit loops within the inner index ``i``.  Inbetween these AVX
+   instruction blocks, there are many peel and remainder loops which do not use
+   AVX.  And this pattern occurs within every ``i`` loop, and repeats itself on
+   every ``j`` and ``k`` iteration.
+
+Both points 2 and 3 limit peak AVX performance, but point 3 is perhaps most
+responsible for the reduced performance.  The small number of inner-loop
+iterations (no more than 24) prevent the development of an efficient
+calculation pipeline, and prevent MOM from achieving anything close to peak AVX
+performance.
+
+In C, it would be possible to re-structure the vectors to appear
+one-dimensional (sometimes referred to as "changing the view" of the vector)
+and efficiently loop over all vector elements.  But in Fortran, there is no
+clear way to loop over vector elements.
+
+.. TODO finish mer
+
+
+Summary
+-------
+
+Performance tests show that MOM is not gaining any substantial benefit from
+SIMD vectorisation on Raijin.
