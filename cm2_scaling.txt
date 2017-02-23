@@ -33,11 +33,11 @@ MPI library.
 
 This error had been addressed in an earlier version of CM2, and was probably
 mentioned in a previous report, but we have since learned that the proposed fix
-contained errors which produced incorrect restart files (courtesty of Aidan
-Heerdegen), and had been removed from the CM2 version of MOM.  The error was
-resolved by replacing the ``ROOT_GLOBAL`` flag with the correct value of
-``GLOBAL_ROOT_ONLY``.  (Thanks to Russ Fiedler for identifying and solving this
-bug.)
+contained errors which produced incorrect restart files (thanks to Aidan
+Heerdegen for reporting this), and had been removed from the CM2 version of
+MOM.  The error was resolved by replacing the ``ROOT_GLOBAL`` flag with the
+correct value of ``GLOBAL_ROOT_ONLY``.  (Thanks to Russ Fiedler for identifying
+and solving this bug.)
 
 After applying this fix, CM2 now runs and no longer hangs within MOM during
 finalisation.
@@ -57,10 +57,28 @@ thousands of CPUs.
 Overall performance
 -------------------
 
+Since each of the submodels can be scaled independently, a full scaling
+analysis of CM2 over CPU configurations will fill a three-dimensional space and
+would require a prohibitively large number of runs.  Given that there is still
+no clear strategy for the analysis of the coupled model, we will defer such a
+analysis to a future report.
+
+For now, we only consider scalings relative the proposed default configuration
+
 The overall runtime scaling for initialisation and model timestepping is shown
 below.
 
-.. TODO
+.. image:: figs/main_um_atm.svg
+.. image:: figs/main_um_ice.svg
+.. image:: figs/main_um_ocn.svg
+
+.. image:: figs/cice_run_atm.svg
+.. image:: figs/cice_run_ice.svg
+.. image:: figs/cice_run_ocn.svg
+
+.. image:: figs/main_mom_atm.svg
+.. image:: figs/main_mom_ice.svg
+.. image:: figs/main_mom_ocn.svg
 
 
 Submodel performance
