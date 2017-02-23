@@ -217,6 +217,12 @@ previous plots.  The runtime decreases in a scalable manner, matching the
 trends of the submodel intrinsic cores.  Beyond the default configuration,
 there is no longer any runtime improvement and the coupling time remains fixed.
 
+While it is unsurprising that a slowdown of CICE due to reduced core count
+would result in greater wait times in the UM, it is at least notable and
+perhaps a bit surprising that a similar slowdown in MOM also causes a greater
+wait time in the UM.  Such a trend implies that a slowdown in MOM causes CICE
+to hold, which indirectly forces the UM into a similar state.
+
 It is not clear why the UM would be waiting so long on a model (CICE) whose
 runtime of 80 seconds is comparable to its own runtime of 70 seconds.  While
 the underlying cause is not yet clear, we provide details below of the
@@ -318,7 +324,11 @@ larger functions.
 Ocean coupling
 --------------
 
-Call tree here.
+The function calls to MOM during each timestep are as follows.
+
+* ``external_coupler_sbc_before``
+* ``update_ocean_model``
+* ``external_coupler_sbc_after``
 
 The relative time in the ocean timestep subroutines is shown below.
 
@@ -333,13 +343,22 @@ receives its boundary conditions from CICE.  Virtually no time is spent within
 the ``external_coupler_sbc_before`` function, where MOM sends its updated
 boundary conditions to CICE.
 
-.. TODO (wait is that right?)
+The very short time of ``external_coupler_sbc_before`` is consistent with the
+relatively large share of time of ``from_ocn`` in CICE.  However, it does
+resemble the similarly asymmetric relationship between the UM's
+``oasis3_geto2a`` and CICE's ``into_atm`` function.
 
-The absolute runtime of ``external_coupler_sbc_after`` is shown below.
+The runtime of ``external_coupler_sbc_after`` is nonetheless signficant, and
+the absolute runtime is shown below.
 
 .. image:: figs/main_IP_external_coupler_sbc_after_atm.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ice.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ocn.svg
+
+This pattern largely follows the trends that one would expect.  When CICE is
+slowed down, MOM is forced to wait longer for data from CICE.  A similar,
+indirect response is seen from a slowdown in the UM.  We note that a slowdown
+in MOM had a similar impact on the UM while it was waiting on data from CICE.
 
 
 Summary
@@ -348,12 +367,32 @@ Summary
 Although somewhat incomplete, this scaling analysis has revealed some important
 facts about the CM2 ``u-ai241`` configuration, which are summarised below.
 
-* Relatively slower runtimes (~70 sec/day, almost half the speed of CM)
+* The results here indicate relatively slow runtimes on the order of 150
+  seconds to simulate one day, which would result in simulation times of less
+  than 2 years per day.  This is notably slower than the 5.6 years per day that
+  was achieved by the previous iteration of CM2 which used the UM 8.6.  Further
+  investigation is needed to determine if this is a result of profiling
+  overhead, or indicates a genuine slowdown of CM2.
 
-* Notably slower speeds in MOM
+* While proven to not be a bottleneck, the MOM runtimes are also notably lower
+  in CM2, whose 80 seconds per day are far slower than the previously reported
+  20 seconds per day (or 12 model years per simulation day) at 960 cores.
 
-* Huge coupling cost in UM (50%)
+* Substantial overhead due to coupling was observed in the UM, with coupling
+  times consuming nearly 50% of total runtime.  While this time is largely due
+  to waiting on data from CICE, the actual send time within CICE is notably
+  smaller.  This could indicate large communication costs associated with the
+  somewhat large number of exchange fields, but further investigation is
+  required to understand this issue.
 
-* "Missing 30 seconds"
+* Despite some minor and unexplained overhead, the coupling costs between MOM
+  and CICE are largely negligible, mostly likely due to their common grid and
+  smaller number of exchange fields.
 
-* Low coupling costs between CICE and MOM (as expected)
+* Although MOM and the UM are not directly coupled, there is a strong and
+  measureable impact on the wait times of the respective models when one is
+  deliberately slowed down, so that wait times in CICE are immediately
+  communicated to the wait times of the other models.
+
+
+.. TODO
