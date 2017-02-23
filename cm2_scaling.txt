@@ -54,19 +54,80 @@ known intermittent model hangs during collectives (such as ``MPI_Reduce``) over
 thousands of CPUs.
 
 
+Submodel performance
+--------------------
+
+Given the challenges of assessing the scalability of a model with three
+independent elements, it is useful to first establish some context for the
+performance of the submodels.
+
+The runtime scaling for each of the submodels is shown below.
+
+.. image:: figs/atm_step_4a.svg
+
+From the timing results, we can see that the UM timestep method scales
+efficiently up to 288 CPUs (using a 16x24 layout), and still gains some
+tolerable speedup at 384 CPUs, the default configuration.  At 288 cores, the
+runtime is approximately 70 seconds per day, and can be reduced to about 60
+seconds per day at 432 cores.  Further speedups are possibly, but only at the
+cost of additional CPU hours.
+
+.. image:: figs/ice_step.svg
+
+Higher efficiencies are observed in the sea ice and ocean models.  The CICE
+timestep is observed to efficiently scale up to 360 CPUs, nearly twice the
+current configuration of 192 cores.  At 192 cores, the runtime is approximately
+80 seconds per day, and at 360 cores the runtime is about 50 seconds per day.
+
+.. image:: figs/update_ocean_model.svg
+
+Even greater efficiency is observed in the MOM timestep subroutine, with
+efficient scaling up to 1920 CPUs.  At the default configuration of 960 cores,
+the runtime is approximately 80 seconds per day, and at 1920 cores this reduces
+to less than 50 seconds per day.
+
+The MOM scaling profile shown above is limited by the CPU capacity of the
+Score-P profiler in our CM2 simulations, but previous analysis of ocean-only
+simulations which do not use Score-P indicate even greater scalability.  A
+sample of the ocean core in a MOM-SIS simulation is shown below.
+
+.. image:: figs/orig_update_ocean_model.svg
+
+While the configuration used to produce the figure above differs slightly from
+the CM2 MOM configuration, the results show that the MOM submodel can be
+efficiently scaled as high as 3840 CPUs, with greater speedup at 7680 CPUs.
+
+We also note that the runs in this alternate MOM figure indicate runtimes of
+less than 20 seconds per day (or roughly 12 years per day), which is 3 times
+slower than the MOM core in CM2.
+
+.. This is a troubling issue, but we will return to this point later.
+
+.. TODO look into this tomorrow.
+
+In any case, these results show that both MOM and CICE are capable of greater
+performance, but the UM is already running at its highest level of efficiency.
+The scalability of the UM constrains its runtime to approximately 70 seconds
+per timestep.  This essentially acts to throttle the MOM and CICE model to
+comparable runtimes, producing the runtimes used in the default configuration.
+
+
 Overall performance
 -------------------
 
 Since each of the submodels can be scaled independently, a full scaling
-analysis of CM2 over CPU configurations will fill a three-dimensional space and
-would require a prohibitively large number of runs.  Given that there is still
-no clear strategy for the analysis of the coupled model, we will defer such a
-analysis to a future report.
+analysis of CM2 over a broad range of CPU configurations would require a
+prohibitively large number of runs to span the three-dimensional parameter
+space.  Given that there is still no clear strategy for the analysis of the
+coupled model, we will defer such a analysis to a future report.
 
-For now, we only consider scalings relative the proposed default configuration
+For now, we only consider the scaling performance relative the proposed default
+configuration of 432 atmosphere cores, 192 ice cores, and 960 ocean cores.
+Specifically, we look at the scalability of each submodel while keeping the
+other model configurations fixed at their default values.
 
-The overall runtime scaling for initialisation and model timestepping is shown
-below.
+The overall runtime scaling for the main loop of the atmosphere model,
+including both coupling and internal model timesteps, is shown below.
 
 .. image:: figs/main_um_atm.svg
 .. image:: figs/main_um_ice.svg
@@ -80,55 +141,35 @@ below.
 .. image:: figs/main_mom_ice.svg
 .. image:: figs/main_mom_ocn.svg
 
+The trend is largely the same over all models and across all scalings.  There
+is a clear speedup trend in all models as the CPU count approaches its default
+configuration.  Beyond this value, the runtime is effectively fixed, showing no
+appreciable change in runtime.
 
-Submodel performance
---------------------
-
-The runtime scaling for each of the submodels is shown below.
-
-.. image:: figs/atm_step_4a.svg
-.. image:: figs/ice_step.svg
-.. image:: figs/update_ocean_model.svg
-
-From the timing results, we can see that the UM timestep method scales
-efficiently up to 288 CPUs (using a 16x24 layout), and still gains some
-tolerable speedup at 384 CPUs, the default configuration.
-
-Higher efficiencies are observed in the sea ice and ocean models.  The CICE
-timestep is observed to efficiently scale up to 360 CPUs, nearly twice the
-current configuration of 192 cores.  Even greater efficiency is observed in the
-MOM timestep subroutine, with efficient scaling up to 1920 CPUs.
-
-The MOM scaling profile shown above is limited by the CPU capacity of the
-Score-P profiler in our CM2 simulations, but previous analysis of ocean-only
-simulations which do not use Score-P indicate even greater scalability, as
-shown in the figure below.
-
-.. image:: figs/orig_update_ocean_model.svg
-
-The results show that the MOM submodel can be efficiently scaled as high as
-3840 CPUs, with greater speedup at 7680 CPUs.
-
-These results show that both MOM and CICE are capable of greater performance,
-but the UM is already running at its highest level of efficiency.  Even in the
-absence of any coupling costs, any improvements to CM2 must first focus on UM
-timestep performance.
+We also note that the total runtime for all models in the default configuration
+has nearly doubled to approximately 150 seconds per day, implying that coupling
+itself is introducing a substantial cost to the model runtime.  A detailed
+analysis of coupling time is discussed below.
 
 
 Atmosphere coupling
 -------------------
 
+In order to better understand the coupling overhead seen in the previous
+section, we compare the relative time on the major modelling and coupling tasks
+within each model.  We first focus on the atmospheric model.
+
 The atmospheric models sends and receives the most data during coupling
-timesteps.  It also has a coarser ~1° grid in comparison to CICE's 0.25° grid,
-meaning that field exchange will also require additional work related
-to interpolation and message passing.
+timesteps.  It also has a coarser 1° resolution grid in comparison to CICE's
+0.25° grid, meaning that field exchange will also require additional work
+related to interpolation and message passing.
 
 The primary function calls in an atmospheric model timestep are shown below in
 the order of exection.
 
 * ``oasis3_geto2a``
 * ``oasis3_puta2o``
-* ``atm_step_4a`` (x 9)
+* ``atm_step_4a``
 
 The UM sends 38 fields to CICE and receives 46 fields, far more than exchanged
 between CICE and MOM.  Although the OASIS exchange functions are called every
@@ -137,15 +178,11 @@ timestep, they only send and receive data after a coupling period of 3 hours
 coupling timesteps.
 
 The relative time devoted to these functions for different CPU arrangements is
-shown below.
+shown below.  The default configuration is indicated by the hashed bar.
 
 .. image:: figs/atm_vs_atm.svg
 .. image:: figs/atm_vs_ice.svg
 .. image:: figs/atm_vs_ocn.svg
-
-These figures demonstrate the relative runtime for each of these functions over
-a range of CPU counts relative to the default configuration, which is denoted
-by the hashed bar in each figure.
 
 For the default configuration, only about 50% of the UM runtime is devoted to
 model simulation.  The other half is devoted to coupling work, which is
@@ -169,10 +206,7 @@ There is a noticeable trend of and increased runtime share of ``oasis3_puta2o``
 as core counts are increased in all models.  However, the relative runtime of
 this function remains small, so we do not include it in our analysis.
 
-.. TODO Do some analysis on oasis3_puta2o if there's time
-
-In order to gain a better understanding of the behaviour of ``oasis3_geto2a``,
-the absolute runtime is shown below.
+The absolute runtimes of ``oasis3_geto2a`` are shown below.
 
 .. image:: figs/oasis3_geto2a_atm.svg
 .. image:: figs/oasis3_geto2a_ice.svg
@@ -183,22 +217,25 @@ previous plots.  The runtime decreases in a scalable manner, matching the
 trends of the submodel intrinsic cores.  Beyond the default configuration,
 there is no longer any runtime improvement and the coupling time remains fixed.
 
-.. TODO Internal o2a analysis?
+It is not clear why the UM would be waiting so long on a model (CICE) whose
+runtime of 80 seconds is comparable to its own runtime of 70 seconds.  While
+the underlying cause is not yet clear, we provide details below of the
+communication pattern:
 
-(Rough notes below)
+* The runtime is 72 timesteps, which include 8 coupling steps.
 
-The runtime is 72 timesteps, with 368 calls to ``oasis3_geto2a``.  The internal
-function ``oasis3_get`` is called 368 times during this run.  There are 46
-fields passed from ice to atmosphere, so ``oasis3_get`` is called 8 times per
-field.  This means that only 1 on 9 ``oasis3_geto2a`` calls results in an
-actual exchange.  This matches up with 3-hour updates
+* The UM received 46 fields from CICE, resulting in a total of 368 calls to
+  ``oasis3_geto2a``.
 
-The function receives a total of 2208 messages (some 2216, some are much
-higher, ~2900).  This is 6 messages per field per exchange step.  Total bytes
-is 194304 (or 176640) bytes.  This is 88 (or 80) bytes (11 or 10 doubles) per
-field per exchange step per message. Since these messages are very small
-(relative to peak of ~1MiB), communication time will be dominated by message
-setup time and will depend primarily on the number of messages.
+* Each UM rank receives at least 2208 messages during this run, or 6 messages
+  per field per timestep.  A few ranks recieve more messages.
+
+* The total byte transfer is ~190 kiB, or 88 bytes per message.  So the
+  communication primarily consists of many small messages.
+
+A more careful analysis of the communication will be required to track down the
+cause of this wait time, but it is helpful to extend our analysis to the sea
+ice model.
 
 
 Sea ice coupling
@@ -209,7 +246,7 @@ The functions calls of the sea ice timestep are shown below.
 * ``from_ocn``
 * ``from_atm``
 * ``into_ocn``
-* ``ice_step`` x N
+* ``ice_step``
 * ``into_atm``
 
 The relative time in each function over all timesteps is shown below.
