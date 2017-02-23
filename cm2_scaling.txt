@@ -255,9 +255,13 @@ The relative time in each function over all timesteps is shown below.
 .. image:: figs/ice_vs_ice.svg
 .. image:: figs/ice_vs_ocn.svg
 
-For the default configuration, approximately 75% of timestep time is devoted to
-model simulation, with 25% of runtime devoted to coupling.  This is primarily
+For the default configuration, approximately 70% of timestep time is devoted to
+model simulation, with 30% of runtime devoted to coupling.  This is primarily
 dominated by the ``into_atm`` and ``from_ocn`` functions.
+
+There is some consistency between ``into_atm`` having the largest share of
+coupling time and the very long ``oasis3_geto2a`` calls within the UM, which
+prompts us to investigate the absolute runtime of ``into_atm``.
 
 The ``into_atm`` function comprises a significant share of the total timestep
 time, although this share does not depend strongly on CPU configuration.  The
@@ -267,33 +271,48 @@ absolute runtimes are shown below.
 .. image:: figs/into_atm_ice.svg
 .. image:: figs/into_atm_ocn.svg
 
-.. TODO
-
 The runtime of ``into_atm`` is relatively fixed, regardless of model
-configuration.
+configuration.  It appears to incur an overhead of under 15 seconds.
+This does not match with the approximately 60 second of overhead from
+``oasis3_geto2a`` within the UM, meaning that coupling has introduced an
+unaccountable 45 seconds of overhead within the UM.
 
-blabla ``from_ocn``
+.. TODO What does it do??
 
-absolute blabla
+The other function of notable cost in CICE is ``from_ocn``.  The time devoted
+to this function remains relatively small, perhaps about half of the time spent
+on ``into_atm``.  But it still comprises about 10% of total runtime, and this
+share is very sensitive to the MOM-CICE CPU configuration, so the absolute
+runtimes are shown below.
 
 .. image:: figs/from_ocn_atm.svg
 .. image:: figs/from_ocn_ice.svg
 .. image:: figs/from_ocn_ocn.svg
 
-blabla
+The trend of this function largely follows the pattern of a waiting submodel.
+When the CICE count is low, then CICE runs more slowly and does not need to
+wait on any incoming data from MOM.  When the CICE core count is increased, the
+runtime also increases, since CICE will be left idle waiting for MOM to
+complete.  A similar trend is observed in MOM, where low core counts and a
+slower MOM lead to increased wait times for CICE.  When MOM's runtime is
+increased, the runtime of ``from_ocn`` drops as expected.  As expected, this
+function is insensitive to the UM configuration.
 
-The ``from_atm`` function is largely an inexpensive operation.  The only
-exception is when the atmosphere is running on 96 cores and CICE must wait on
-the model.  But as the number of atmospheric cores is increased and the UM's
-runtime is reduced, this wait time becomes a small component of the total
-runtime.  This is consistent with our earlier measurements of ``oasis3_puta2o``
-in the UM, which was also a relatively small portion of its runtime.
+When wait times have been eliminated, the ``from_ocn`` function appears to
+introduce an overhead of about 7 seconds in the default configuration.
+
+We quickly address the other coupling operations in CICE.  The ``from_atm``
+function is largely an inexpensive operation.  The only exception is when the
+atmosphere is running on 96 cores and CICE must wait on the model.  But as the
+number of atmospheric cores is increased and the UM's runtime is reduced, this
+wait time becomes a small component of the total runtime.  This is consistent
+with our earlier measurements of ``oasis3_puta2o`` in the UM, which was also a
+relatively small portion of its runtime.
 
 The ``into_ocn`` function is also a relatively inexpensive operation.  Although
 there is some dependence on the scalability of CICE and MOM, the relatively
 small share of time spent in this function permits us to focus on the two
 larger functions.
-
 
 
 Ocean coupling
@@ -321,3 +340,20 @@ The absolute runtime of ``external_coupler_sbc_after`` is shown below.
 .. image:: figs/main_IP_external_coupler_sbc_after_atm.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ice.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ocn.svg
+
+
+Summary
+-------
+
+Although somewhat incomplete, this scaling analysis has revealed some important
+facts about the CM2 ``u-ai241`` configuration, which are summarised below.
+
+* Relatively slower runtimes (~70 sec/day, almost half the speed of CM)
+
+* Notably slower speeds in MOM
+
+* Huge coupling cost in UM (50%)
+
+* "Missing 30 seconds"
+
+* Low coupling costs between CICE and MOM (as expected)
