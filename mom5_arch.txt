@@ -43,18 +43,17 @@ Run   Initialization    Main Loop      Ice         Ocean
 10         30.792388    207.464302     20.275388   165.414327
 ===   ==============    ==========     =========   ==========
 
-If we ignore the variability in initialisation time, which is likely related to
+If we ignore the variability of initialisation time, which is likely related to
 IO and performance of the filesystem, we can see that the model is
 approximately 10% faster when AVX instructions are used.  Given that the
 maximum potential speedup is 400%, or a factor of four, this shows that AVX has
 a much more marginal impact on model runtime, and that MOM 5 is currently not
 well-vectorised.
 
-Our previous report showed that the MOM 5 source code is itself
-well-vectorised, with AVX instructions utilised to a very high degree.
-However, it would seem that the AVX instructions themselves are not being
-effectively leveraged in the model, and that any benefits are blocked by some
-other issue, such as poor caching or interruptions to the instructions
+Our previous report showed that the MOM 5 source code uses AVX instructions to
+a very high degree.  However, it would seem that these instructions are not
+being effectively leveraged in the model, and that any benefits are blocked by
+some other issue, such as poor caching or interruptions to the instruction
 pipeline.
 
 We next consider the impact of the Broadwell CPUs.  Those results, with AVX
@@ -137,7 +136,7 @@ From this, we conclude that the model can be ported to the Knights
 Landing architecture without major disruption, and that runtime effectively
 matches the clock speed of the processor.  However, additional improvements to
 MOM 5 are needed in order to benefit from AVX vectorisation.  In particular,
-MOm 5 will need to demonstrate very clear improvements from AVX and AVX-512
+MOM 5 will need to demonstrate very clear improvements from AVX and AVX-512
 vectorisation before it is able to produce performance on the Knights Landing
 nodes which is comparable to Raijin.
 
@@ -171,18 +170,18 @@ We test these results in the MOM's ``bowl1`` configuration.  Model runtime is
 Sample runtimes and FLOPs per second are shown below.  We report the mean
 runtime over all ranks, selecting the median result for an ensemble of runs.
 
-====   =========  ===========    ==========
-CPUs   Vec. Size  Runtime (s)    GFLOPS/sec
-====   =========  ===========    ==========
-1          300.0     0.027970        0.6590
-2          150.0     0.018425        0.5002
-4           75.0     0.007956        0.5792
-8           37.5     0.006058        0.3803
-16          18.8     0.003503        0.3289
-32           9.3     0.002264        0.2544
-60           5.0     0.001617        0.1900
-120          2.5     0.001434        0.1071
-====   =========  ===========    ==========
+====   ===============  ===========    ==========
+CPUs   Vec. Size (kiB)  Runtime (s)    GFLOPS/sec
+====   ===============  ===========    ==========
+1                300.0     0.027970        0.6590
+2                150.0     0.018425        0.5002
+4                 75.0     0.007956        0.5792
+8                 37.5     0.006058        0.3803
+16                18.8     0.003503        0.3289
+32                 9.3     0.002264        0.2544
+60                 5.0     0.001617        0.1900
+120                2.5     0.001434        0.1071
+====   ===============  ===========    ==========
 
 (Similar numbers were obtained from an equivalent Fortran program, in order to
 rule out any effects due to dereferencing (``%``) or any resource issues within
@@ -286,8 +285,9 @@ instructions, and even less benefit from the AVX2 extension.
 MOM can run successfully on the Xeon Phi Knights Landing nodes, and its
 performance is in proportion to the Sandy Bridge node clock speeds.  There are
 insufficient nodes available to conduct a proper scaling test, but early
-numbers suggest that MOM follows the same per-core trend on the Knights Landing
-nodes.
+numbers suggest that MOM follows the same performance-per-core trend on the
+Knights Landing nodes, and that performance will be limited by the
+significantly lower clock speeds of the Xeon Phis.
 
 The absence of any AVX speedup is evident in a roofline analysis of a sample
 loop calculation within MOM.  The performance in FLOPs per second is no more

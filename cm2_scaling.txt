@@ -14,10 +14,9 @@ OASIS field exchange between models, but may also include some minor
 modifications to the numerical solvers.
 
 In the ``u-ai241`` configuration, the UM has the N96 (192 x 144) horizontal
-grid of approximately 1° resolution, and with 85? (*check*) vertical levels.
-CICE and MOM share a higher resolution 0.25° resolution grid of 1440 x 1080
-grid points.  CICE models six (*check*) classes of sea ice, and MOM uses 50 vertical
-levels.
+grid of approximately 1° resolution, and with 85 vertical levels.  CICE and MOM
+share a higher resolution 0.25° resolution grid of 1440 x 1080 grid points.
+CICE models five categories of sea ice, and MOM uses 50 vertical levels.
 
 
 Modifications
@@ -70,9 +69,7 @@ Submodel performance
 The runtime scaling for each of the submodels is shown below.
 
 .. image:: figs/atm_step_4a.svg
-
 .. image:: figs/ice_step.svg
-
 .. image:: figs/update_ocean_model.svg
 
 From the timing results, we can see that the UM timestep method scales
@@ -113,7 +110,7 @@ the order of exection.
 
 * ``oasis3_geto2a``
 * ``oasis3_puta2o``
-* ``atm_step_4a``
+* ``atm_step_4a`` (x 9)
 
 The UM sends 38 fields to CICE and receives 46 fields, far more than exchanged
 between CICE and MOM.  Although the OASIS exchange functions are called every
@@ -125,11 +122,8 @@ The relative time devoted to these functions for different CPU arrangements is
 shown below.
 
 .. image:: figs/atm_vs_atm.svg
-   :width: 30%
 .. image:: figs/atm_vs_ice.svg
-   :width: 30%
 .. image:: figs/atm_vs_ocn.svg
-   :width: 30%
 
 These figures demonstrate the relative runtime for each of these functions over
 a range of CPU counts relative to the default configuration, which is denoted
@@ -197,9 +191,7 @@ The functions calls of the sea ice timestep are shown below.
 * ``from_ocn``
 * ``from_atm``
 * ``into_ocn``
-* Internal loop
-
-   * ``ice_step``
+* ``ice_step`` x N
 * ``into_atm``
 
 The relative time in each function over all timesteps is shown below.
