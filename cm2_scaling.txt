@@ -394,5 +394,10 @@ facts about the CM2 ``u-ai241`` configuration, which are summarised below.
   deliberately slowed down, so that wait times in CICE are immediately
   communicated to the wait times of the other models.
 
-
-.. TODO
+Despite the limitations of this analyis, we believe it represents a strong
+attempt to characterise the performance issues related to coupling, and has
+revealed a number of potential bottlenecks and areas for improvement,
+particularly in the coupling between the UM and CICE.  We will continue to
+investage these issues, and hope that further iterations of this analysis will
+provide increasingly clearer pictures of the performance of CM2 and other
+coupled models in the future.
