@@ -98,10 +98,11 @@ the CM2 MOM configuration, the results show that the MOM submodel can be
 efficiently scaled as high as 3840 CPUs, with greater speedup at 7680 CPUs.
 
 We also note that the runs in this alternate MOM figure indicate runtimes of
-less than 20 seconds per day (or roughly 12 years per day), which is 3 times
-slower than the MOM core in CM2.  This is due to the timestep size of 450
+less than 20 seconds per day (or roughly 12 model years per day), which is 3
+times slower than the MOM core in CM2.  This is due to the timestep size of 450
 seconds in CM2's version of MOM, which is four times smaller than the 1800
-second timesteps in our MOM-SIS simulations.
+second timesteps in our MOM-SIS simulations.  (The additional discrepancies in
+runtime per timestep are most likely due to different model configurations.)
 
 In any case, these results show that both MOM and CICE are capable of greater
 performance, but the UM is already running at its highest level of efficiency.
