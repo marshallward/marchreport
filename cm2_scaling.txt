@@ -157,18 +157,47 @@ appreciable change in runtime.
 
 The total runtime for all models in the default configuration has increased to
 approximately 100 seconds per day, indicating a coupling overhead of
-approximately 10% to 30%, depending on the particular model.  A detailed
+approximately 20% to 30%, depending on the particular model.  A detailed
 analysis of coupling time is discussed below.
+
+
+Coupling subroutine analysis
+----------------------------
+
+In order to better understand the coupling overhead seen in the previous
+section, we compare the relative time on the major modelling and coupling tasks
+within each model.  In the following sections, we investigate the scalability
+of the coupling exchange functions.
+
+Two major issues have arisen in our analysis of OASIS coupling functions.  The
+first is that differences in model initialisation time can indirectly
+contribute to coupling time.  For example, if one model initiates a ``get``
+call from another model which has not yet completed its initialisation, this
+difference in initialisation time will be logged as part of the ``get`` call.
+We compensate for this by deducting this difference when the ice model exceeds
+the ocean model initialisation, and when either of these models exceed the
+atmospheric runtime.  Internal model timesteps may also occur during this
+initialisation differential time.  More complicated blocking scenarios exist,
+but these two cases cover most situations.  This differential can be on the
+order of 50 seconds, if not greater, for most configurations.
+
+A second issue is that an OASIS call may include the one-time reading and
+writing of a restart file.  Since our metrics show integrated time within a
+function, it is desirable to subtract this contribution if possible.  This
+differential is on the order of 10 seconds for most configurations.
+
+Currently, we only attempt to compensate for initialisation time, and
+intermediate model timesteps, but do not yet attempt to compensate for any
+OASIS IO time.  Although our default configuration is consistent with a longer
+30 day simulation, there is a great deal of room for improvement in this
+analysis.  Future investigations will either improve on these methods or reduce
+these errors with longer simulation times.
 
 
 Atmosphere coupling
 -------------------
 
-In order to better understand the coupling overhead seen in the previous
-section, we compare the relative time on the major modelling and coupling tasks
-within each model.  We first focus on the atmospheric model.
-
-The atmospheric models sends and receives the most data during coupling
+The atmospheric model sends and receives the most data during coupling
 timesteps.  It also has a coarser 1° resolution grid in comparison to CICE's
 0.25° grid, meaning that field exchange will also require additional work
 related to interpolation and message passing.
@@ -193,27 +222,25 @@ shown below.  The default configuration is indicated by the hashed bar.
 .. image:: figs/atm_vs_ice.svg
 .. image:: figs/atm_vs_ocn.svg
 
-For the default configuration, only about 50% of the UM runtime is devoted to
-model simulation.  The other half is devoted to coupling work, which is
+For the default configuration, approximately 70% of the UM runtime is devoted to
+model simulation.  The other 30% is devoted to coupling work, which is
 predominantly due to the ``oasis3_geto2a`` function.  This subroutine receives
 and distributed the boundary data from CICE to the UM and is dominated by
 point-to-point exchanges via ``MPI_Isend()`` and ``MPI_Wait`` calls.
 
 For low CPU counts, the UM runtime is dominated by internal timesteps of
 ``atm_step_4a``.  This share decreases as the core count is increased through
-its well-scaling configurations.  By 432 cores, coupling time comprises half of
-the total runtime, and continues to increase as core count is increased, albeit
-more slowly.
+its well-scaling configurations.  By 432 cores, coupling time only increases
+modestly, reflecting the loss of scalability and relatively fixed UM runtime.
 
-For the sea ice and ocean models, coupling time increases as CICE and MOM's CPU
-count is reduced, presumably due to slower runtimes and greater wait times of
-the UM.  When CICE and MOM are scaled up to CPU counts greater than the default
-configuration, there is no substantial change in coupling time or the total UM
-runtime.
+Coupling time is very high when CICE and MOM's CPU count is reduced, presumably
+due to slower model performance and the waiting of the UM.  When CICE and MOM
+are scaled up to CPU counts greater than the default configuration, this
+waiting time is greatly diminished.
 
-There is a noticeable trend of and increased runtime share of ``oasis3_puta2o``
-as core counts are increased in all models.  However, the relative runtime of
-this function remains small, so we do not include it in our analysis.
+There is a noticeable trend of increased runtime share of ``oasis3_puta2o`` as
+core counts are increased in all models.  However, the relative runtime of this
+function remains small, so we do not include it in our analysis.
 
 The absolute runtimes of ``oasis3_geto2a`` are shown below.
 
@@ -221,36 +248,17 @@ The absolute runtimes of ``oasis3_geto2a`` are shown below.
 .. image:: figs/oasis3_geto2a_ice.svg
 .. image:: figs/oasis3_geto2a_ocn.svg
 
-Trends along sea ice and ocean cores match the relative runtimes in the
-previous plots.  The runtime decreases in a scalable manner, matching the
-trends of the submodel intrinsic cores.  Beyond the default configuration,
-there is no longer any runtime improvement and the coupling time remains fixed.
+Coupling times in the UM increase as core counts are increased, reflecting the
+modest gains in speed and increased wait times over this interval.  Similar
+reverse trends are observed along the other cores; as the other models are sped
+up or slowed down, the wait time of the UM adjusts accordingly.
 
-While it is unsurprising that a slowdown of CICE due to reduced core count
-would result in greater wait times in the UM, it is at least notable and
-perhaps a bit surprising that a similar slowdown in MOM also causes a greater
-wait time in the UM.  Such a trend implies that a slowdown in MOM causes CICE
-to hold, which indirectly forces the UM into a similar state.
+We would expect that a change in CICE performance would alter the waiting time
+of the UM.  But it is perhaps a bit surprising that a similar slowdown in MOM
+also causes a greater wait time in the UM, even though they are not directly
+coupled.
 
-It is not clear why the UM would be waiting so long on a model (CICE) whose
-runtime of 80 seconds is comparable to its own runtime of 70 seconds.  While
-the underlying cause is not yet clear, we provide details below of the
-communication pattern:
-
-* The runtime is 72 timesteps, which include 8 coupling steps.
-
-* The UM received 46 fields from CICE, resulting in a total of 368 calls to
-  ``oasis3_geto2a``.
-
-* Each UM rank receives at least 2208 messages during this run, or 6 messages
-  per field per timestep.  A few ranks recieve more messages.
-
-* The total byte transfer is ~190 kiB, or 88 bytes per message.  So the
-  communication primarily consists of many small messages.
-
-A more careful analysis of the communication will be required to track down the
-cause of this wait time, but it is helpful to extend our analysis to the sea
-ice model.
+.. TODO anything else to  say here?
 
 
 Sea ice coupling
@@ -274,10 +282,6 @@ For the default configuration, approximately 70% of timestep time is devoted to
 model simulation, with 30% of runtime devoted to coupling.  This is primarily
 dominated by the ``into_atm`` and ``from_ocn`` functions.
 
-There is some consistency between ``into_atm`` having the largest share of
-coupling time and the very long ``oasis3_geto2a`` calls within the UM, which
-prompts us to investigate the absolute runtime of ``into_atm``.
-
 The ``into_atm`` function comprises a significant share of the total timestep
 time, although this share does not depend strongly on CPU configuration.  The
 absolute runtimes are shown below.
@@ -288,16 +292,16 @@ absolute runtimes are shown below.
 
 The runtime of ``into_atm`` is relatively fixed, regardless of model
 configuration.  It appears to incur an overhead of under 15 seconds.
-This does not match with the approximately 60 second of overhead from
-``oasis3_geto2a`` within the UM, meaning that coupling has introduced an
-unaccountable 45 seconds of overhead within the UM.
+This does not match with the more CPU-sensive trends observed in
+``oasis3_geto2a`` within the UM, meaning that coupling operations impose some
+fixed overhead onto the system.
 
 .. TODO What does it do??
 
 The other function of notable cost in CICE is ``from_ocn``.  The time devoted
 to this function remains relatively small, perhaps about half of the time spent
 on ``into_atm``.  But it still comprises about 10% of total runtime, and this
-share is very sensitive to the MOM-CICE CPU configuration, so the absolute
+share is very sensitive to the MOM-CICE CPU configuration.  The absolute
 runtimes are shown below.
 
 .. image:: figs/from_ocn_atm.svg
@@ -345,20 +349,14 @@ The relative time in the ocean timestep subroutines is shown below.
 .. image:: figs/ocn_vs_ice.svg
 .. image:: figs/ocn_vs_ocn.svg
 
-As is evident from the figures, MOM spends approximately half of its time on
-model simulation, and half on coupling activities.  Nearly all of the coupling
+As is evident from the figures, MOM spends approximately 80% of its time on
+model simulation, and 20% on coupling activities.  Nearly all of the coupling
 time is spent within the ``external_coupler_sbc_after`` function, where MOM
 receives its boundary conditions from CICE.  Virtually no time is spent within
 the ``external_coupler_sbc_before`` function, where MOM sends its updated
 boundary conditions to CICE.
 
-The very short time of ``external_coupler_sbc_before`` is consistent with the
-relatively large share of time of ``from_ocn`` in CICE.  However, it does
-resemble the similarly asymmetric relationship between the UM's
-``oasis3_geto2a`` and CICE's ``into_atm`` function.
-
-The runtime of ``external_coupler_sbc_after`` is nonetheless signficant, and
-the absolute runtime is shown below.
+The runtime of ``external_coupler_sbc_after`` is shown below.
 
 .. image:: figs/main_IP_external_coupler_sbc_after_atm.svg
 .. image:: figs/main_IP_external_coupler_sbc_after_ice.svg
@@ -373,43 +371,37 @@ in MOM had a similar impact on the UM while it was waiting on data from CICE.
 Summary
 -------
 
-Although somewhat incomplete, this scaling analysis has revealed some important
-facts about the CM2 ``u-ai241`` configuration, which are summarised below.
+This study is a first attempt at characterising the performance of the ACCESS
+CM2 model.  While there are still many questions related to its performance,
+our analysis has revealed the following facts, which are summarised below.
 
-* The results here indicate relatively slow runtimes on the order of 150
-  seconds to simulate one day, which would result in simulation times of less
-  than 2 years per day.  This is notably slower than the 5.6 years per day that
-  was achieved by the previous iteration of CM2 which used the UM 8.6.  Further
-  investigation is needed to determine if this is a result of profiling
+* The runtimes for these experiments are relatively slow, with times on the
+  order of 100 seconds per day, which would result in simulation times of about
+  2.5 years per day.  This is notably slower than the 5.6 years per day that
+  was achieved by the previous iteration of CM2, which used the UM 8.6.
+  Further investigation is needed to determine if this is a result of profiling
   overhead, or indicates a genuine slowdown of CM2.
 
 * While proven to not be a bottleneck, the MOM runtimes are also notably lower
   in CM2, whose 80 seconds per day are far slower than the previously reported
-  20 seconds per day (or 12 model years per simulation day) at 960 cores.  It
-  may be worth investigating the possibility of using higher timesteps,
-  although this would not result in a faster runtime without comparable
-  improvements in the UM core.
+  20 seconds per day (or 12 model years per simulation day) at 960 cores.  This
+  is due to a much lower timestep size.  While this is not impeding the model
+  in any substantial way, due to relatively slow runtime of the UM, it may be
+  worth testing higher timesteps in MOM in order to reduce CPU hour usage.
 
-* Substantial overhead due to coupling was observed in the UM, with coupling
-  times consuming nearly 50% of total runtime.  While this time is largely due
-  to waiting on data from CICE, the actual send time within CICE is notably
-  smaller.  This could indicate large communication costs associated with the
-  somewhat large number of exchange fields, but further investigation is
-  required to understand this issue.
-
-* Despite some minor and unexplained overhead, the coupling costs between MOM
-  and CICE are largely negligible, mostly likely due to their common grid and
-  smaller number of exchange fields.
+* Coupling in CM2 adds an overhead of approximately 20% to 30% on each
+  submodel.  Since all models have some degree of overhead, there may be fixed
+  costs associated with field exchange communication.
 
 * Although MOM and the UM are not directly coupled, there is a strong and
-  measureable impact on the wait times of the respective models when one is
+  measurable impact on the wait times of the respective models when one is
   deliberately slowed down, so that wait times in CICE are immediately
   communicated to the wait times of the other models.
 
-Despite the limitations of this analyis, we believe it represents a strong
+Despite the limitations of this analysis, we believe it represents a strong
 attempt to characterise the performance issues related to coupling, and has
 revealed a number of potential bottlenecks and areas for improvement,
 particularly in the coupling between the UM and CICE.  We will continue to
-investage these issues, and hope that further iterations of this analysis will
-provide increasingly clearer pictures of the performance of CM2 and other
-coupled models in the future.
+investigate these issues, and we hope that further work will provide
+increasingly clearer pictures of the performance of CM2 and other coupled
+models in the future.
