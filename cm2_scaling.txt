@@ -99,11 +99,9 @@ efficiently scaled as high as 3840 CPUs, with greater speedup at 7680 CPUs.
 
 We also note that the runs in this alternate MOM figure indicate runtimes of
 less than 20 seconds per day (or roughly 12 years per day), which is 3 times
-slower than the MOM core in CM2.
-
-.. This is a troubling issue, but we will return to this point later.
-
-.. TODO look into this tomorrow.
+slower than the MOM core in CM2.  This is due to the timestep size of 450
+seconds in CM2's version of MOM, which is four times smaller than the 1800
+second timesteps in our MOM-SIS simulations.
 
 In any case, these results show that both MOM and CICE are capable of greater
 performance, but the UM is already running at its highest level of efficiency.
@@ -376,7 +374,10 @@ facts about the CM2 ``u-ai241`` configuration, which are summarised below.
 
 * While proven to not be a bottleneck, the MOM runtimes are also notably lower
   in CM2, whose 80 seconds per day are far slower than the previously reported
-  20 seconds per day (or 12 model years per simulation day) at 960 cores.
+  20 seconds per day (or 12 model years per simulation day) at 960 cores.  It
+  may be worth investigating the possibility of using higher timesteps,
+  although this would not result in a faster runtime without comparable
+  improvements in the UM core.
 
 * Substantial overhead due to coupling was observed in the UM, with coupling
   times consuming nearly 50% of total runtime.  While this time is largely due
