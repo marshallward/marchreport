@@ -18,9 +18,16 @@ grid of approximately 1° resolution, and with 85 vertical levels.  CICE and MOM
 share a higher resolution 0.25° resolution grid of 1440 x 1080 grid points.
 CICE models five categories of sea ice, and MOM uses 50 vertical levels.
 
+Since ``u-ai241`` is a development suite, several parameters may be
+configured for model spinup rather than for scientific analysis.  Some results
+may not be reflective of a longer term scientific analysis, and we may revisit
+these results in the future.
+
 
 Modifications
 -------------
+
+We first discuss the changes that were made to the model configuration.
 
 Initial attempts to use the CM2 model led to infrequent errors and model hangs
 in MOM.  We concluded that this was due to a hang in the ACCESS section of MOM
@@ -59,37 +66,40 @@ Submodel performance
 
 Given the challenges of assessing the scalability of a model with three
 independent elements, it is useful to first establish some context for the
-performance of the submodels.
+performance of the submodels.  In this section, we look at the performance of
+the computational cores of each submodel, absent any effects due to coupling.
 
 The runtime scaling for each of the submodels is shown below.
 
 .. image:: figs/atm_step_4a.svg
 
-From the timing results, we can see that the UM timestep method scales
-efficiently up to 288 CPUs (using a 16x24 layout), and still gains some
-tolerable speedup at 384 CPUs, the default configuration.  At 288 cores, the
-runtime is approximately 70 seconds per day, and can be reduced to about 60
-seconds per day at 432 cores.  Further speedups are possibly, but only at the
-cost of additional CPU hours.
+From the timing results above, we can see that the UM N96 atmospheric core
+scales efficiently up to 288 CPUs, and still gains some tolerable speedup at
+432 CPUs, the default configuration.  At 288 cores, the runtime is
+approximately 70 seconds per day, and can be reduced to about 60 seconds per
+day at 432 cores.  Further speedups are possible, but only at a substantial
+cost of CPU hours.
 
 .. image:: figs/ice_step.svg
 
 Higher efficiencies are observed in the sea ice and ocean models.  The CICE
-timestep is observed to efficiently scale up to 360 CPUs, nearly twice the
-current configuration of 192 cores.  At 192 cores, the runtime is approximately
-80 seconds per day, and at 360 cores the runtime is about 50 seconds per day.
+computational core is observed to efficiently scale up to 360 CPUs, nearly
+twice the current configuration of 192 cores.  At 192 cores, the runtime is
+approximately 80 seconds per day, and at 360 cores the runtime is about 50
+seconds per day.
 
 .. image:: figs/update_ocean_model.svg
 
-Even greater efficiency is observed in the MOM timestep subroutine, with
+Even greater efficiency is observed in the MOM computational core, with
 efficient scaling up to 1920 CPUs.  At the default configuration of 960 cores,
-the runtime is approximately 80 seconds per day, and at 1920 cores this reduces
-to less than 50 seconds per day.
+the runtime is approximately 80 seconds per day, and at 1920 cores it is a bit
+greater than 40 seconds per day.
 
-The MOM scaling profile shown above is limited by the CPU capacity of the
-Score-P profiler in our CM2 simulations, but previous analysis of ocean-only
-simulations which do not use Score-P indicate even greater scalability.  A
-sample of the ocean core in a MOM-SIS simulation is shown below.
+The MOM scaling profiles shown in this report are limited by the CPU capacity
+of the Score-P profiler in our CM2 simulations, but previous analysis of
+ocean-only simulations which do not use Score-P indicate even greater
+scalability.  A sample of the ocean core in a MOM-SIS simulation is shown
+below.
 
 .. image:: figs/orig_update_ocean_model.svg
 
@@ -97,18 +107,18 @@ While the configuration used to produce the figure above differs slightly from
 the CM2 MOM configuration, the results show that the MOM submodel can be
 efficiently scaled as high as 3840 CPUs, with greater speedup at 7680 CPUs.
 
-We also note that the runs in this alternate MOM figure indicate runtimes of
-less than 20 seconds per day (or roughly 12 model years per day), which is 3
-times slower than the MOM core in CM2.  This is due to the timestep size of 450
-seconds in CM2's version of MOM, which is four times smaller than the 1800
-second timesteps in our MOM-SIS simulations.  (The additional discrepancies in
-runtime per timestep are most likely due to different model configurations.)
+We also note that the 960-core runtime in this alternate MOM figure is less
+than 20 seconds per day (or roughly 12 model years per day), which is 3 times
+slower than the MOM core in CM2.  This is largely due to the timestep size of
+450 seconds in CM2's version of MOM, which is four times smaller than the 1800
+second timesteps used in our MOM-SIS simulations.
 
-In any case, these results show that both MOM and CICE are capable of greater
-performance, but the UM is already running at its highest level of efficiency.
-The scalability of the UM constrains its runtime to approximately 70 seconds
-per timestep.  This essentially acts to throttle the MOM and CICE model to
-comparable runtimes, producing the runtimes used in the default configuration.
+But differences aside, these results show that both MOM and CICE are capable of
+greater performance, but the UM is already running at its highest level of
+efficiency.  The scalability of the UM constrains its runtime to approximately
+70 seconds per timestep.  This essentially acts to throttle the MOM and CICE
+model to comparable runtimes, producing the runtimes used in the default
+configuration.
 
 
 Overall performance
@@ -118,14 +128,12 @@ Since each of the submodels can be scaled independently, a full scaling
 analysis of CM2 over a broad range of CPU configurations would require a
 prohibitively large number of runs to span the three-dimensional parameter
 space.  Given that there is still no clear strategy for the analysis of the
-coupled model, we will defer such a analysis to a future report.
+coupled model, we will defer such a analysis for a future report.
 
 For now, we only consider the scaling performance relative the proposed default
 configuration of 432 atmosphere cores, 192 ice cores, and 960 ocean cores.
 Specifically, we look at the scalability of each submodel while keeping the
 other model configurations fixed at their default values.
-
-.. TODO offset issue due to initialisation
 
 The overall runtime scaling for the main loop of the atmosphere model,
 including both coupling and internal model timesteps, is shown below.
@@ -134,9 +142,9 @@ including both coupling and internal model timesteps, is shown below.
 .. image:: figs/main_um_ice.svg
 .. image:: figs/main_um_ocn.svg
 
-.. image:: figs/cice_run_atm.svg
-.. image:: figs/cice_run_ice.svg
-.. image:: figs/cice_run_ocn.svg
+.. image:: figs/main_cice_atm.svg
+.. image:: figs/main_cice_ice.svg
+.. image:: figs/main_cice_ocn.svg
 
 .. image:: figs/main_mom_atm.svg
 .. image:: figs/main_mom_ice.svg
@@ -147,10 +155,10 @@ is a clear speedup trend in all models as the CPU count approaches its default
 configuration.  Beyond this value, the runtime is effectively fixed, showing no
 appreciable change in runtime.
 
-We also note that the total runtime for all models in the default configuration
-has increased to approximately 100 seconds per day, indicating a coupling
-overhead of approximately 20% to 30%, depending on the particular model.  A
-detailed analysis of coupling time is discussed below.
+The total runtime for all models in the default configuration has increased to
+approximately 100 seconds per day, indicating a coupling overhead of
+approximately 10% to 30%, depending on the particular model.  A detailed
+analysis of coupling time is discussed below.
 
 
 Atmosphere coupling
