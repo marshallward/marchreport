@@ -125,6 +125,8 @@ configuration of 432 atmosphere cores, 192 ice cores, and 960 ocean cores.
 Specifically, we look at the scalability of each submodel while keeping the
 other model configurations fixed at their default values.
 
+.. TODO offset issue due to initialisation
+
 The overall runtime scaling for the main loop of the atmosphere model,
 including both coupling and internal model timesteps, is shown below.
 
@@ -146,9 +148,9 @@ configuration.  Beyond this value, the runtime is effectively fixed, showing no
 appreciable change in runtime.
 
 We also note that the total runtime for all models in the default configuration
-has nearly doubled to approximately 150 seconds per day, implying that coupling
-itself is introducing a substantial cost to the model runtime.  A detailed
-analysis of coupling time is discussed below.
+has increased to approximately 100 seconds per day, indicating a coupling
+overhead of approximately 20% to 30%, depending on the particular model.  A
+detailed analysis of coupling time is discussed below.
 
 
 Atmosphere coupling
@@ -164,7 +166,7 @@ timesteps.  It also has a coarser 1° resolution grid in comparison to CICE's
 related to interpolation and message passing.
 
 The primary function calls in an atmospheric model timestep are shown below in
-the order of exection.
+the order of execution.
 
 * ``oasis3_geto2a``
 * ``oasis3_puta2o``
